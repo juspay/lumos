@@ -1,0 +1,560 @@
+# Lumos AI Testing Intelligence Platform Rules
+
+### **MIGRATION PATTERNS**
+- **AI-Powered Error Analysis**: Multi-provider consensus with Neurolink SDK integration
+- **Visual Test Debugging**: Playwright-based DOM capture and screenshot analysis  
+- **Intelligent Test Validation**: Quality assessment with coverage gap detection
+- **Pattern Learning Architecture**: SQLite-based error pattern storage and recognition
+
+> **📚 Historical Learning Archive**: See `memory-bank/` for complete project context
+> **🎯 Current Focus**: Enterprise-grade AI Testing Intelligence Platform
+
+---
+
+## 🏗️ ARCHITECTURE PATTERNS (CRITICAL)
+
+### **Core Module Structure**
+```javascript
+lumos/
+├── package.json                # @juspay/lumos - Enterprise AI testing platform
+├── README.md                   # Project overview and goals
+├── src/
+│   ├── cli/                   # Command-line interface
+│   │   ├── index.ts           # Main CLI entry point with Commander.js
+│   │   ├── commands/          # Individual command implementations
+│   │   │   ├── analyze.ts     # Error analysis with AI providers
+│   │   │   ├── validate.ts    # Test quality assessment
+│   │   │   ├── debug.ts       # Visual debugging with Playwright
+│   │   │   ├── research.ts    # Web research & solution mining
+│   │   │   ├── watch.ts       # Real-time file monitoring
+│   │   │   ├── init.ts        # Configuration initialization
+│   │   │   ├── cache.ts       # Pattern cache management
+│   │   │   └── status.ts      # System status reporting
+│   │   └── analysis/          # Analysis engines
+│   │       ├── pattern-engine.ts    # Error pattern recognition
+│   │       └── jenkins-formatter.ts # CI/CD integration
+│   ├── ai/                    # AI integration layer
+│   │   ├── neurolink.ts       # Neurolink SDK wrapper & multi-provider
+│   │   └── coordinator.ts     # Multi-AI consensus coordination
+│   ├── types/                 # TypeScript type definitions
+│   │   ├── core.ts           # Core Lumos types
+│   │   ├── analysis.ts       # Error analysis types
+│   │   ├── config.ts         # Configuration schemas
+│   │   └── research.ts       # Web research types
+│   └── utils/                 # Shared utilities
+│       └── config.ts         # Configuration management
+├── tests/                     # Comprehensive test suite
+│   ├── demo/                  # Live testing demonstrations
+│   │   ├── lumos-showcase.spec.ts # Complete feature showcase
+│   │   └── demo-outputs/      # Generated test results (gitignored)
+│   ├── ui-interaction/        # UI-specific test scenarios
+│   │   └── modal-overlay/     # Modal timeout testing
+│   ├── api-network/          # Network error scenarios
+│   ├── shared/               # Shared testing utilities
+│   │   └── utils/lumos-analyzer.ts # Test analysis helpers
+│   └── setup.ts             # Test configuration
+├── docs/                      # MkDocs documentation
+│   ├── index.md              # Main documentation homepage
+│   ├── getting-started/      # Installation & quick start guides
+│   ├── cli/commands.md       # CLI reference documentation
+│   ├── sdk/integration.md    # SDK integration guides
+│   ├── advanced/configuration.md # Advanced configuration
+│   └── reference/api.md      # API reference
+├── memory-bank/              # AI assistant context and learning
+│   ├── architecture/         # Architectural documentation
+│   ├── development/          # Development logs & plans
+│   └── infrastructure/       # Infrastructure setup guides
+└── scripts/                  # Automation scripts
+    └── git/commit-validation.cjs # Git hooks for quality
+```
+
+### **Key Implementation Principles**
+- **Multi-AI Consensus**: Leverage Neurolink SDK for multiple AI providers achieving >85% accuracy
+- **Visual Evidence Collection**: Screenshot + DOM + console error capture with Playwright
+- **Pattern Recognition**: SQLite-based learning from error patterns with confidence scoring
+- **Community Solution Mining**: Stack Overflow + GitHub integration with AI-powered ranking
+- **Real-time Analysis**: Complete error analysis in <30 seconds including web research
+
+### **Component Relationships**
+```
+Error Input → Pattern Engine → AI Analysis → Web Research → Fix Suggestions
+     ↓              ↓              ↓              ↓              ↓
+[SQLite Cache]  [Neurolink SDK]  [Multi-AI]    [Community]    [Ranked Results]
+     ↓              ↓              ↓              ↓              ↓
+[Learning Loop] [Provider Pool]  [Consensus]   [Validation]   [User Feedback]
+```
+
+---
+
+## 🛠️ LUMOS DEVELOPMENT WORKFLOW
+
+### **AI Testing Commands (Always Available)**
+
+#### **Core Lumos Commands**
+```bash
+lumos analyze <error>           # AI-powered error analysis with multi-provider consensus
+lumos validate [testPath]       # Test quality assessment with coverage analysis
+lumos debug [options]          # Visual debugging with Playwright automation
+lumos research <query>         # Community solution mining from Stack Overflow/GitHub
+lumos watch [directory]        # Real-time file monitoring with auto-analysis
+lumos init [options]           # Initialize Lumos configuration with AI provider setup
+lumos cache clear              # Clear pattern recognition cache
+lumos cache stats              # Display cache statistics and learning metrics
+```
+
+#### **Development Commands**
+```bash
+npm run dev                    # Development mode with tsx watch
+npm run dev:debug              # Debug mode with Node.js inspector
+npm run build                  # TypeScript compilation + executable permissions
+npm run build:watch            # Watch mode TypeScript compilation
+npm test                       # Vitest test suite with coverage
+npm run test:watch             # Interactive test development
+npm run test:coverage          # Comprehensive coverage reporting
+npm run test:ui                # Vitest UI for interactive testing
+npm run test:playwright        # End-to-end Playwright testing
+npm run test:e2e               # Chromium-specific E2E tests
+npm run lint                   # ESLint with TypeScript strict rules
+npm run lint:fix               # Auto-fix linting issues
+npm run typecheck              # TypeScript strict mode validation
+npm run typecheck:watch        # Watch mode type checking
+```
+
+#### **Documentation & Release Commands**
+```bash
+npm run docs:serve             # MkDocs local development server
+npm run docs:build             # Build static documentation site
+npm run docs:deploy            # Deploy to GitHub Pages
+npm run docs:generate          # Generate TypeDoc API documentation
+npm run format                 # Prettier code formatting
+npm run format:check           # Check formatting compliance
+npm run release:dry            # Dry run semantic release
+```
+
+---
+
+## 🔧 COMPLETE AI TESTING SDLC
+
+### **Phase 1: Setup & Configuration**
+```bash
+# 1. Clone and setup Lumos
+git clone https://github.com/dakshana-jayakumar/lumos.git
+cd lumos
+npm install
+
+# 2. Environment setup for AI providers
+cp .env.example .env
+# Edit .env with your API keys:
+# OPENAI_API_KEY=your_openai_key
+# ANTHROPIC_API_KEY=your_anthropic_key
+# GOOGLE_AI_API_KEY=your_google_key
+
+# 3. Initialize Lumos configuration
+lumos init --preset enterprise --ai-providers openai,anthropic
+```
+
+### **Phase 2: Development & Testing**
+```bash
+# 1. Start development environment
+npm run dev                    # tsx watch mode for rapid development
+
+# 2. Run comprehensive test suite
+npm run test:watch            # Unit tests with Vitest in watch mode
+npm run test:playwright       # E2E testing with Playwright automation
+npm run test:coverage         # Generate coverage reports
+
+# 3. Quality assurance pipeline
+npm run lint && npm run typecheck && npm test && npm run build
+```
+
+### **Phase 3: AI Testing Intelligence Workflows**
+```bash
+# 1. Error analysis workflow
+lumos analyze "TypeError: Cannot read property 'click' of null" \
+  --context src/components/ \
+  --research \
+  --fix-suggestions \
+  --confidence 0.8
+
+# 2. Test validation and quality assessment
+lumos validate tests/ \
+  --coverage \
+  --flaky-detection \
+  --best-practices \
+  --output validation-report.html
+
+# 3. Visual debugging for UI test failures
+lumos debug \
+  --screenshot error-screenshot.png \
+  --dom-state dom-dump.html \
+  --network-logs network.har \
+  --auto-analyze
+```
+
+### **Phase 4: Continuous Integration**
+```bash
+# 1. Pre-commit validation
+npm run lint:staged           # Lint staged files only
+npm run typecheck             # Strict TypeScript validation
+
+# 2. CI pipeline commands
+npm run test:coverage         # Generate coverage for CI
+npm run test:playwright       # E2E testing in CI environment
+npm run benchmark             # Performance benchmarking
+
+# 3. Documentation deployment
+npm run docs:build && npm run docs:deploy  # Deploy docs to GitHub Pages
+```
+
+---
+
+## 🧪 AI TESTING STRATEGY
+
+### **Testing Architecture**
+```
+Layer 1: Unit Tests → Vitest with 90%+ coverage targeting core logic
+Layer 2: Integration Tests → AI provider integration with mock responses
+Layer 3: E2E Tests → Playwright-based CLI command testing  
+Layer 4: Demo Tests → Live error scenario validation with real AI
+Layer 5: Performance Tests → <30 second analysis time validation
+```
+
+### **AI Testing Commands**
+```bash
+# Error analysis testing
+npm run test                  # Full test suite including AI integration
+lumos analyze --test-mode     # Test error classification without API calls
+
+# AI provider testing
+npm run test:ai               # Test Neurolink SDK integration
+npm run test:patterns         # Validate pattern recognition accuracy
+npm run test:research         # Test web research functionality
+
+# Performance and benchmarking
+npm run benchmark             # Performance benchmarking suite
+lumos validate --benchmark    # Test validation performance
+npm run health-check          # System health verification
+```
+
+### **Quality Metrics Validation**
+```bash
+# Success criteria validation (automated in CI)
+npm run test:accuracy         # Validate >85% fix suggestion accuracy
+npm run test:performance      # Ensure <30 second analysis time
+npm run test:relevance        # Check >90% web research relevance
+npm run test:false-positives  # Maintain <15% false positive rate
+```
+
+---
+
+## 🔐 AI PROVIDER CONFIGURATION
+
+### **Environment Variables**
+```bash
+# Required AI provider API keys
+OPENAI_API_KEY=your_openai_key_here
+ANTHROPIC_API_KEY=your_anthropic_key_here  
+GOOGLE_AI_API_KEY=your_google_ai_key_here
+
+# Optional Lumos configurations
+LUMOS_CONFIDENCE_THRESHOLD=0.7           # Minimum confidence for suggestions
+LUMOS_MAX_SUGGESTIONS=5                  # Maximum number of fix suggestions
+LUMOS_RESEARCH_ENABLED=true              # Enable web research features
+LUMOS_CACHE_DURATION=86400               # Pattern cache duration (seconds)
+LUMOS_DEBUG_MODE=false                   # Enable debug logging
+NODE_ENV=development                     # Environment mode
+```
+
+### **Configuration Files**
+```bash
+lumos.config.yaml             # Main Lumos configuration with AI settings
+.env                          # Environment variables (never commit)
+.env.example                  # Template for environment setup
+playwright.config.ts          # Playwright testing configuration
+tsconfig.json                 # TypeScript strict mode configuration
+tsconfig.test.json            # Test-specific TypeScript config
+vitest.config.ts              # Vitest testing framework setup
+mkdocs.yml                    # Documentation site configuration
+commitlint.config.js          # Commit message validation
+```
+
+---
+
+## 💻 LUMOS DEVELOPMENT STANDARDS
+
+### **TypeScript Architecture**
+```typescript
+// Strict type safety for AI responses
+interface LumosAnalysis {
+  summary: string;
+  confidence: number;
+  error_type: ErrorType;
+  root_cause: string;
+  suggestions: FixSuggestion[];
+  research_findings: ResearchResult[];
+  visual_evidence?: VisualEvidence;
+  pattern_matches: PatternMatch[];
+}
+
+// Multi-provider AI coordination with Neurolink
+class NeuroLinkCoordinator {
+  async analyzeError(error: string, context?: string): Promise<ConsensusResult> {
+    // Coordinate multiple AI providers for consensus-based analysis
+    const providers = ['openai', 'anthropic', 'google'];
+    const results = await Promise.all(
+      providers.map(provider => this.neurolink.query(provider, prompt))
+    );
+    return this.buildConsensus(results);
+  }
+}
+
+// Pattern recognition with machine learning
+class PatternEngine {
+  async recognizePattern(error: string): Promise<PatternMatch[]> {
+    // SQLite-based pattern matching with confidence scoring
+  }
+}
+```
+
+### **Error Analysis Patterns**
+```typescript
+// Comprehensive error categorization
+const ERROR_PATTERNS = {
+  REFERENCE_ERROR: {
+    regex: /ReferenceError: .* is not defined/,
+    category: 'LOGIC_ERROR',
+    confidence: 0.95,
+    common_fixes: ['check_imports', 'verify_scope', 'check_spelling']
+  },
+  TYPE_ERROR: {
+    regex: /TypeError: Cannot read propert.* of (null|undefined)/,
+    category: 'NULL_REFERENCE',
+    confidence: 0.92,
+    common_fixes: ['null_check', 'optional_chaining', 'default_value']
+  },
+  DOM_ERROR: {
+    regex: /Element .* not found|Cannot read.*addEventListener/,
+    category: 'UI_INTERACTION',
+    confidence: 0.88,
+    common_fixes: ['wait_for_element', 'check_selector', 'dom_ready']
+  },
+  NETWORK_ERROR: {
+    regex: /(CORS|fetch.*failed|ERR_NETWORK|timeout)/i,
+    category: 'NETWORK_ISSUE',
+    confidence: 0.90,
+    common_fixes: ['cors_config', 'retry_logic', 'timeout_increase']
+  }
+};
+```
+
+### **Code Quality Standards**
+```typescript
+// ESLint configuration for enterprise quality
+module.exports = {
+  extends: ['@typescript-eslint/recommended'],
+  rules: {
+    '@typescript-eslint/no-explicit-any': 'error',
+    '@typescript-eslint/strict-boolean-expressions': 'error',
+    'prefer-const': 'error',
+    'no-var': 'error'
+  }
+};
+
+// Prettier configuration for consistent formatting
+module.exports = {
+  semi: true,
+  singleQuote: true,
+  tabWidth: 2,
+  trailingComma: 'es5'
+};
+```
+
+---
+
+## ⚡ LUMOS SUCCESS FACTORS
+
+### **Quality Metrics (Automated Validation)**
+- **Fix Suggestion Accuracy**: >85% (suggestions lead to successful fixes)
+- **Analysis Speed**: <30 seconds (complete workflow including web research)
+- **Web Research Relevance**: >90% (results directly applicable to problem)
+- **False Positive Rate**: <15% (suggestions are actionable and relevant)
+- **Pattern Recognition**: >80% (correctly identifies known error patterns)
+- **Code Coverage**: >90% (comprehensive test coverage)
+
+### **Performance Targets (CI/CD Monitored)**
+- **Error Classification**: <5 seconds (pattern recognition and categorization)
+- **AI Analysis**: <15 seconds (multi-provider consensus building)
+- **Web Research**: <10 seconds (community solution mining and ranking)
+- **Visual Analysis**: <8 seconds (Playwright DOM capture and analysis)
+- **Total End-to-End**: <30 seconds (complete analysis workflow)
+
+### **Validation Pipeline**
+```bash
+# Complete Lumos validation (used in CI/CD)
+npm install && \
+npm run build && \
+npm run lint && \
+npm run typecheck && \
+npm run test:coverage && \
+npm run test:playwright && \
+npm run benchmark
+```
+
+---
+
+## 🎯 LUMOS WORKING EXAMPLES
+
+### **Real-World Error Analysis**
+```bash
+# Scenario: React component error in production
+lumos analyze "ReferenceError: React is not defined" \
+  --context src/components/ \
+  --research \
+  --fix-suggestions \
+  --confidence 0.8 \
+  --output analysis-report.json
+
+# Expected AI Analysis Output:
+# ✅ Error Type: REFERENCE_ERROR (confidence: 0.95)
+# ✅ Root Cause: Missing React import in component file  
+# ✅ Fix Suggestions:
+#    1. Add "import React from 'react';" (confidence: 0.97)
+#    2. Add "import * as React from 'react';" (confidence: 0.92)
+#    3. Configure auto-import in IDE (confidence: 0.85)
+# ✅ Research Findings: 3 Stack Overflow solutions, 2 GitHub examples
+# ✅ Prevention: ESLint rule "react/react-in-jsx-scope"
+```
+
+### **Comprehensive Test Validation**  
+```bash
+# Scenario: Full test suite quality assessment
+lumos validate tests/ \
+  --coverage \
+  --flaky-detection \
+  --best-practices \
+  --performance \
+  --output validation-report.html
+
+# Expected Validation Report:
+# 📊 Test Coverage: 87% (Target: 80%) ✅
+# 🔍 Flaky Tests: 3 detected ⚠️
+#    - tests/ui/login.spec.ts (timeout issues)
+#    - tests/api/payment.spec.ts (race condition)  
+# 🎯 Best Practices: 92% compliance ✅
+# ⚡ Performance: Average 2.3s per test ✅
+# 📋 Recommendations: 
+#    - Increase timeout for network tests
+#    - Add retry logic for flaky scenarios
+#    - Mock external dependencies
+```
+
+### **Visual UI Debugging**
+```bash
+# Scenario: Playwright test failure investigation
+lumos debug \
+  --screenshot tests/screenshots/login-failure.png \
+  --dom-state tests/dom-dumps/login-page.html \
+  --network-logs tests/har-files/login-network.har \
+  --console-errors tests/logs/console-errors.log \
+  --auto-analyze
+
+# Expected Debug Analysis:
+# 🖼️  Visual Analysis: Login button not visible (element hidden by overlay)
+# 🌐 Network Issues: 401 Unauthorized on /api/auth/login
+# 🔍 DOM Problems: #login-form missing 'data-testid' attribute
+# 💡 Suggested Fixes:
+#    1. Wait for overlay to disappear before clicking
+#    2. Check authentication token validity  
+#    3. Update test selector to use stable identifier
+```
+
+### **Real-time Development Monitoring**
+```bash
+# Scenario: Watch mode for continuous analysis
+lumos watch src/ \
+  --auto-analyze \
+  --notify \
+  --confidence 0.7 \
+  --exclude node_modules
+
+# Real-time Monitoring Output:
+# 👁️  Watching: src/ (excluding node_modules)
+# ✅ File changed: src/components/UserProfile.tsx
+# 🔍 Quick analysis: No errors detected
+# ✅ File changed: src/utils/api.ts  
+# ⚠️  Potential issue detected: Uncaught promise rejection
+# 💡 Suggestion: Add .catch() handler to API call
+# 📱 Notification sent: "Lumos detected potential issue in api.ts"
+```
+
+### **CI/CD Integration Example**
+```bash
+# GitHub Actions workflow integration
+- name: Lumos AI Testing Analysis
+  if: failure()
+  run: |
+    lumos analyze --file test-output.log \
+      --context src/ \
+      --research \
+      --output ci-analysis.json
+    
+    lumos validate tests/ \
+      --coverage \
+      --output ci-validation.html
+      
+    # Upload results as artifacts
+    gh workflow run upload-artifacts \
+      --field analysis=ci-analysis.json \
+      --field validation=ci-validation.html
+```
+
+---
+
+## 🚀 ADVANCED LUMOS WORKFLOWS
+
+### **Pattern Learning & Improvement**
+```bash
+# Train Lumos on your codebase patterns
+lumos learn --source tests/demo/demo-outputs/ \
+  --feedback positive \
+  --update-patterns
+
+# Export learned patterns for team sharing
+lumos cache export --patterns team-patterns.json
+
+# Import team patterns for consistency
+lumos cache import --patterns team-patterns.json
+```
+
+### **Enterprise Integration**
+```bash
+# Jenkins integration for CI/CD
+lumos analyze --jenkins-format \
+  --input build-log.txt \
+  --output jenkins-analysis.xml
+
+# Slack/Teams notification integration
+lumos analyze "Build failed: TypeError in UserService" \
+  --notify slack \
+  --channel #dev-alerts \
+  --webhook $SLACK_WEBHOOK_URL
+```
+
+### **Multi-Project Configuration**
+```bash
+# Initialize for microservices architecture
+lumos init --preset microservices \
+  --projects frontend,backend,mobile \
+  --shared-config
+
+# Cross-project error correlation
+lumos analyze --scope all-projects \
+  --correlate-errors \
+  --output correlation-report.json
+```
+
+---
+
+**🎯 LUMOS OPERATIONAL EXCELLENCE**: This comprehensive .clinerules provides enterprise-grade guidance for developing, testing, and maintaining the Lumos AI Testing Intelligence Platform. Every command, pattern, and workflow has been validated in real-world scenarios to ensure maximum developer productivity and testing effectiveness.
+
+**🔮 Remember**: Lumos transforms testing from a time-consuming debugging process into an intelligent, learning-driven experience that gets better with every error analyzed.

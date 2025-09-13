@@ -1,0 +1,191 @@
+# Repository settings for Lumos AI Testing Intelligence Platform
+# This file is used by the Settings GitHub App to manage repository configuration
+
+repository:
+  # Repository basic settings
+  name: lumos
+  description: '🔮 Enterprise-grade AI Testing Intelligence Platform with Neurolink SDK integration for error analysis, test validation, and visual debugging'
+  homepage: https://juspay.github.io/lumos/
+  topics:
+    - ai-testing
+    - testing-intelligence
+    - error-analysis
+    - neurolink-sdk
+    - typescript
+    - playwright
+    - cli-tool
+    - enterprise
+    - debugging
+    - test-automation
+    - ai-powered
+    - pattern-recognition
+    - visual-debugging
+    - multi-ai-consensus
+    - juspay
+
+  # Repository features
+  private: false
+  has_issues: true
+  has_projects: true
+  has_wiki: false
+  has_pages: true
+  has_downloads: true
+  default_branch: main
+
+  # Repository settings
+  allow_squash_merge: true
+  allow_merge_commit: false
+  allow_rebase_merge: false
+  allow_auto_merge: true
+  delete_branch_on_merge: true
+  enable_automated_security_fixes: true
+  enable_vulnerability_alerts: true
+
+# Enhanced labels for AI testing platform
+labels:
+  # Standard labels
+  - name: bug
+    color: d73a4a
+    description: Something isn't working
+
+  - name: documentation
+    color: 0075ca
+    description: Improvements or additions to documentation
+
+  - name: duplicate
+    color: cfd3d7
+    description: This issue or pull request already exists
+
+  - name: enhancement
+    color: a2eeef
+    description: New feature or request
+
+  - name: good first issue
+    color: 7057ff
+    description: Good for newcomers
+
+  - name: help wanted
+    color: 008672
+    description: Extra attention is needed
+
+  - name: invalid
+    color: e4e669
+    description: This doesn't seem right
+
+  - name: question
+    color: d876e3
+    description: Further information is requested
+
+  - name: wontfix
+    color: ffffff
+    description: This will not be worked on
+
+  - name: dependencies
+    color: 0366d6
+    description: Pull requests that update a dependency file
+
+  - name: security
+    color: ee0701
+    description: Security related issues
+
+  - name: performance
+    color: fbca04
+    description: Performance related improvements
+
+  # Lumos-specific AI testing labels
+  - name: ai-integration
+    color: 6f42c1
+    description: AI provider integration and Neurolink SDK related
+
+  - name: error-analysis
+    color: 28a745
+    description: Error pattern recognition and analysis features
+
+  - name: testing-intelligence
+    color: 17a2b8
+    description: Test validation and quality assessment
+
+  - name: cli-interface
+    color: fd7e14
+    description: Command-line interface improvements
+
+  - name: visual-debugging
+    color: dc3545
+    description: Playwright-based visual debugging features
+
+  - name: performance-critical
+    color: ffc107
+    description: Performance optimization for <30s analysis target
+
+  - name: pattern-engine
+    color: 20c997
+    description: Error pattern recognition and learning
+
+  - name: research-integration
+    color: 6610f2
+    description: Community solution mining and web research
+
+  - name: neurolink-sdk
+    color: 9933cc
+    description: Neurolink SDK integration and multi-provider AI
+
+  - name: confidence-scoring
+    color: 33cc99
+    description: AI confidence scoring and accuracy improvements
+
+  - name: juspay-platform
+    color: ff6b35
+    description: Juspay platform integration and enterprise features
+
+# Branch protection rules for Lumos
+branches:
+  - name: main
+    protection:
+      required_status_checks:
+        strict: true
+        contexts:
+          - 'Lumos Quality Check'
+          - 'TypeScript Compilation'
+          - 'Vitest Tests'
+          - 'Playwright E2E Tests'
+          - 'ESLint Analysis'
+          - 'Lumos AI Testing Intelligence Review'
+      enforce_admins: true
+      required_pull_request_reviews:
+        required_approving_review_count: 1
+        dismiss_stale_reviews: true
+        require_code_owner_reviews: true
+        dismissal_restrictions: {}
+      restrictions: null
+      required_linear_history: true
+      allow_force_pushes: false
+      allow_deletions: false
+
+# Juspay Lumos teams configuration
+teams:
+  - name: 'juspay-lumos-core'
+    permission: admin
+  - name: 'juspay-ai-engineering'
+    permission: write
+  - name: 'lumos-contributors'
+    permission: write
+  - name: 'juspay-platform-team'
+    permission: write
+
+# Collaborators (managed separately)
+collaborators: []
+
+# Lumos development milestones
+milestones:
+  - title: 'Phase 1.5 - AI Testing Intelligence'
+    description: 'Core error analysis, test validation, and visual debugging with >85% accuracy'
+    state: open
+  - title: 'Phase 2 - Automated Fix Application'
+    description: 'Git integration and automated fix deployment with CI/CD workflows'
+    state: open
+  - title: 'Phase 3 - Intelligent Test Generation'
+    description: 'AI-powered test creation based on learned error patterns'
+    state: open
+  - title: 'v1.0.0 - Enterprise Release'
+    description: 'Production-ready AI testing intelligence platform for Juspay ecosystem'
+    state: open
