@@ -1,0 +1,8 @@
+# Global owners
+* @juspay/lumos-maintainers
+
+# Documentation
+*.md @juspay/docs-team
+
+# GitHub workflows
+/.github/ @juspay/devops-team

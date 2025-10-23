@@ -1,0 +1,136 @@
+{
+  "$schema": "https://raw.githubusercontent.com/github/copilot-review-action/main/schema/config.json",
+  "version": "1.0.0",
+  "enabled": true,
+  "auto_review": {
+    "enabled": true,
+    "on_pull_request": true,
+    "on_push": false
+  },
+  "review_settings": {
+    "max_files": 75,
+    "max_lines_per_file": 1500,
+    "exclude_patterns": [
+      "*.min.js",
+      "*.min.css",
+      "node_modules/**",
+      "dist/**",
+      "build/**",
+      "coverage/**",
+      "*.lock",
+      "*.log",
+      "tests/demo/demo-outputs/**",
+      "memory-bank/**",
+      "playwright-report/**",
+      "test-results/**",
+      "*.lumos-report-*.json",
+      "*-analysis.json",
+      "*-screenshot.png",
+      "demo-results/**",
+      "docs/_build/**",
+      "site/**"
+    ],
+    "include_patterns": [
+      "src/cli/**/*.ts",
+      "src/ai/**/*.ts",
+      "src/types/**/*.ts",
+      "src/utils/**/*.ts",
+      "src/core/**/*.ts",
+      "tests/**/*.spec.ts",
+      "tests/**/*.test.ts",
+      "scripts/**/*.ts",
+      "scripts/**/*.cjs",
+      "*.config.ts",
+      "*.config.js",
+      "*.config.yaml",
+      "docs/**/*.md",
+      "*.md"
+    ]
+  },
+  "comment_settings": {
+    "style": "inline",
+    "auto_resolve": false,
+    "require_human_approval": true,
+    "max_comments_per_review": 30
+  },
+  "focus_areas": [
+    "ai_integration_quality",
+    "error_pattern_analysis",
+    "testing_intelligence",
+    "cli_interface_design",
+    "performance_metrics",
+    "type_safety",
+    "security",
+    "code_quality",
+    "best_practices",
+    "documentation"
+  ],
+  "custom_prompts": {
+    "ai_integration_quality": "Review AI provider integration patterns, focusing on Neurolink SDK usage, multi-provider consensus mechanisms, error handling, and type safety for AI responses. Ensure proper fallback strategies and timeout handling.",
+
+    "error_pattern_analysis": "Analyze error pattern recognition logic, regex patterns accuracy, confidence scoring algorithms, and pattern learning mechanisms. Validate that error categorization is comprehensive and confidence thresholds are appropriate.",
+
+    "testing_intelligence": "Evaluate test validation logic, coverage analysis accuracy, flaky test detection algorithms, and visual debugging implementations. Ensure testing metrics meet enterprise standards (>85% accuracy, <30s analysis time).",
+
+    "cli_interface_design": "Review CLI command structure, option handling, user experience patterns, help text clarity, and error messaging. Ensure consistent command patterns and intuitive developer workflows.",
+
+    "performance_metrics": "Analyze performance-critical code for meeting Lumos targets: <5s error classification, <15s AI analysis, <10s web research, <30s total workflow. Check for potential bottlenecks and optimization opportunities.",
+
+    "type_safety": "Evaluate TypeScript strict mode compliance, interface definitions for AI responses, type guards, and proper error type handling. Ensure comprehensive type coverage for all AI integration points.",
+
+    "security_review": "Review code for security vulnerabilities, especially around AI API key handling, user input validation in error analysis, and secure storage of pattern recognition data. Focus on enterprise security standards.",
+
+    "code_quality": "Evaluate code quality including readability, maintainability, adherence to Lumos coding standards, proper error handling, and consistency with established patterns in the AI testing platform."
+  },
+  "integrations": {
+    "github_checks": true,
+    "slack_notifications": false,
+    "email_notifications": false
+  },
+  "project_context": {
+    "name": "@juspay/lumos",
+    "description": "Enterprise-grade AI Testing Intelligence Platform with Neurolink SDK integration for error analysis, test validation, and visual debugging",
+    "language": "TypeScript",
+    "framework": "Node.js CLI with Playwright integration",
+    "key_technologies": [
+      "Neurolink SDK",
+      "TypeScript (strict mode)",
+      "Playwright",
+      "SQLite (pattern storage)",
+      "Commander.js (CLI)",
+      "Vitest (testing)",
+      "MkDocs (documentation)"
+    ],
+    "architecture_focus": [
+      "Multi-AI provider consensus",
+      "Error pattern recognition",
+      "Visual test debugging",
+      "Community solution mining",
+      "Real-time analysis workflows"
+    ],
+    "quality_targets": {
+      "fix_accuracy": ">85%",
+      "analysis_speed": "<30 seconds",
+      "research_relevance": ">90%",
+      "false_positive_rate": "<15%",
+      "code_coverage": ">90%"
+    }
+  },
+  "lumos_specific": {
+    "ai_providers": ["OpenAI", "Anthropic", "Google AI"],
+    "core_commands": [
+      "lumos analyze",
+      "lumos validate",
+      "lumos debug",
+      "lumos research",
+      "lumos watch"
+    ],
+    "critical_patterns": [
+      "Error classification accuracy",
+      "AI response type safety",
+      "Pattern engine performance",
+      "CLI command consistency",
+      "Visual debugging reliability"
+    ]
+  }
+}
