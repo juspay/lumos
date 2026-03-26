@@ -1,0 +1,39 @@
+version: 1
+
+ai:
+  provider: 'litellm'
+  model: 'glm-latest'
+  temperature: 0.1
+  maxTokens: 30000
+  timeout: '5m'
+  maxTokenBudget: 1000000
+  maxCostPerRun: 5.0
+
+mcpServers:
+  jira:
+    enabled: true
+
+report:
+  # Where Playwright writes the JSON report (relative to project root)
+  jsonPath: 'test/json/result.json'
+
+# Context files to feed the AI (relative to the CONSUMER project root, NOT Lumos).
+# When Lumos runs inside Lighthouse (via Jenkins or scripts/run-lumos.js),
+# projectRoot points to the Lighthouse repo checkout, so these paths resolve
+# against that directory. Each file is truncated at 15k chars to limit prompt size.
+memoryBank:
+  - 'memory-bank/playwright-failure-suggestions.md'
+  - 'memory-bank/tests/playwright-failure-suggestions.md'
+  - 'memory-bank/tests/testStability.md'
+
+# Posting behavior
+posting:
+  # Group all suggestions into one comment, or post one comment per failure
+  strategy: 'single' # 'single' | 'per-failure'
+
+observability:
+  langfuse:
+    enabled: false
+    # Set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, and LANGFUSE_BASE_URL
+    # env vars to enable Langfuse tracing. Setting LANGFUSE_PUBLIC_KEY
+    # automatically sets enabled: true.

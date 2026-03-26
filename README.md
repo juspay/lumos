@@ -1,131 +1,137 @@
-# Lumos: AI-Powered Testing Intelligence Platform
+# Lumos
 
-*"Lumos" - Illuminating Your Testing Challenges*
+AI-powered test failure analysis agent. Parses Playwright JSON reports, correlates failures with Bitbucket PR diffs using a NeuroLink autonomous AI agent, and posts actionable fix suggestions as PR comments.
 
-## 🔮 What is Lumos?
+Built as a standalone npm package (`@juspay/lumos`) consumed by [Lighthouse](https://bitbucket.juspay.net/projects/BZ/repos/lighthouse) (the Breeze merchant dashboard).
 
-**Lumos** is your AI testing companion that brings clarity to the chaos of test failures, error debugging, and quality assessment. Like the magical spell that creates light, Lumos illuminates the dark corners of your testing problems and reveals clear paths to solutions.
+## How It Works
 
-## 🎯 Main Objective
+1. **Parse** -- Reads a Playwright JSON report and extracts structured failure data (error messages, stack traces, locations, flaky detection).
+2. **Correlate** -- A NeuroLink AI agent fetches the PR diff via Bitbucket MCP, reads relevant source files, and determines which failures are caused by PR changes vs pre-existing/flaky vs infrastructure issues.
+3. **Post** -- The agent composes and posts a single structured comment on the Bitbucket PR with root cause analysis and fix suggestions for each failure.
 
-Create **Lumos** - an AI-powered testing intelligence platform using Juspay's Neurolink SDK that goes far beyond debugging to provide **complete testing intelligence**.
+Lumos runs in the Jenkinsfile `catch` block after mock tests fail, wrapped in its own `try/catch` so it never blocks the build pipeline.
 
-## 🌟 What Lumos Actually Does
+## Setup
 
-### 🔍 **Error Intelligence & Debugging**
-- Instantly understands cryptic error messages
-- Provides step-by-step fixes with exact code changes
-- Finds proven solutions from Stack Overflow, GitHub, and documentation
+### Prerequisites
 
-### 📊 **Test Quality Intelligence** 
-- Evaluates your existing test suite quality and effectiveness
-- Identifies weak, flaky, or redundant tests
-- Finds coverage gaps and suggests improvements
-- Ensures best practice compliance
+- Node.js >= 20.12.0
+- pnpm
 
-### 🎯 **Visual Analysis** (For UI Tests)
-- Captures screenshots when UI tests fail
-- Analyzes DOM state, network issues, and console errors
-- Provides visual evidence of what went wrong
+### Install
 
-### 🧠 **Organizational Learning**
-- Learns patterns from your codebase
-- Builds testing knowledge specific to your project
-- Remembers what fixes worked before
-- Prevents recurring issues
-
-### 🔮 **Future Intelligence** (Phases 2-3)
-- **Automated fix application** - Actually applies fixes for you
-- **Intelligent test generation** - Creates new tests based on learned patterns
-- **CI/CD integration** - Works seamlessly in your build pipeline
-
-## 📋 Core Goals
-
-- **Reduce debugging time by 60%** - From hours to minutes with AI-powered analysis
-- **Improve test quality by 85%** - Through intelligent validation and suggestions
-- **Accelerate problem resolution** - Community solution mining with AI ranking
-- **Build organizational testing knowledge** - Pattern learning that gets smarter over time
-
-## 🚀 Phase 1.5 Implementation (5-6 days) - PRIMARY FOCUS
-
-### 6 Key Components:
-
-**1. Error Intelligence Engine**
-- Multi-AI error classification (6 categories: Logic, Environment, Race Conditions, UI, Network, Configuration)
-- Pattern recognition and learning with confidence scoring
-- Cross-provider consensus mechanism
-
-**2. Playwright-Based Visual Analysis**
-- DOM state capture at failure points
-- Screenshots and console error monitoring
-- Network issue detection and performance metrics
-- UI-specific failure evidence collection
-
-**3. Test Validation Engine**
-- Quality assessment of existing test suites
-- Coverage gap identification and prioritization
-- Flaky test detection and stabilization suggestions
-- Best practice compliance checking
-
-**4. Web Research & Solution Mining**
-- Stack Overflow + GitHub + Documentation integration
-- AI-powered solution ranking and relevance analysis
-- Intelligent query generation for diverse search strategies
-- Community knowledge extraction and validation
-
-**5. Fix Suggestion Engine**
-- Multi-provider AI suggestions with step-by-step guides
-- Code diffs and exact implementation instructions
-- Risk assessment and verification steps
-- Confidence scoring and feasibility validation
-
-**6. CLI Interface & Interactive Dashboard**
-- Developer-friendly commands (`lumos analyze`, `lumos validate`, `lumos debug`, `lumos watch`)
-- Rich HTML reports with visual evidence
-- Interactive debugging sessions with guided workflows
-- Real-time analysis with file watching
-
-## 🛠 Technical Architecture
-
-- **Neurolink SDK** for multi-AI provider access (OpenAI, Anthropic, Google, Azure, etc.)
-- **TypeScript (strict mode)** with comprehensive type safety
-- **Playwright** for reliable browser automation and visual analysis
-- **SQLite** for error pattern storage and learning
-- **Commander.js** for CLI interface
-- **Comprehensive testing strategy** with 90%+ coverage targets
-
-## 📊 Success Metrics
-
-- **>85% fix suggestion accuracy** - suggestions lead to successful fixes
-- **>90% web research relevance** - search results directly applicable
-- **<30 seconds analysis time** - including web research and AI processing
-- **<15% false positive rate** - suggestions are actionable and relevant
-- **Developer satisfaction** - tool becomes part of daily debugging workflow
-
-## 💡 Real-World Example
-
-**Before Lumos:**
 ```bash
-❌ "ReferenceError: React is not defined" 
-   → Spend 2 hours Googling, reading docs, trying random fixes
+pnpm install
 ```
 
-**With Lumos:**
+### Configure
+
+1. Copy `.env.example` to `.env` and fill in your credentials:
+
 ```bash
-✨ lumos analyze --error="ReferenceError: React is not defined"
-   → 5 seconds: Identifies missing import
-   → Shows exact fix: import React from 'react'
-   → Explains why it happened
-   → Links to 3 relevant Stack Overflow solutions
-   → Suggests ESLint rule to prevent future occurrences
+cp .env.example .env
 ```
 
-## 🔄 Future Phases
+Required env vars:
 
-- **Phase 2**: Automated fix application + Git integration + CI/CD workflows (1-3 days)
-- **Phase 3**: Intelligent test generation based on learned error patterns (1-3 days)
-- **Phase 4**: Advanced analytics, trend analysis, and continuous improvement (1-3 days)
+- `LITELLM_BASE_URL` / `LITELLM_API_KEY` -- AI provider (LiteLLM proxy for local, Vertex for production)
+- `BITBUCKET_USERNAME` / `BITBUCKET_TOKEN` -- Bitbucket MCP access
+- `JIRA_API_TOKEN` / `JIRA_EMAIL` -- Optional, for Jira MCP context (`JIRA` is also accepted as the token fallback)
 
----
+2. Optionally edit `lumos.config.yaml` to override defaults (AI model, timeout, token budget, report path, etc.). Environment variables take highest precedence.
 
-**Lumos transforms testing from a frustrating time-sink into a quick, learning experience.** ✨
+Supported Lumos config overrides from env:
+
+- `LUMOS_PROVIDER`
+- `LUMOS_MODEL`
+- `LUMOS_TIMEOUT`
+- `LUMOS_MAX_TOKENS`
+- `LUMOS_MAX_TOKEN_BUDGET`
+- `LUMOS_MAX_COST`
+
+## Usage
+
+### Programmatic
+
+```typescript
+import { createLumos } from '@juspay/lumos';
+
+const lumos = await createLumos();
+const result = await lumos.analyze({
+  workspace: 'BZ',
+  repository: 'lighthouse',
+  pullRequestId: '4638',
+  type: 'mock',
+});
+
+console.log(result.failuresAnalyzed); // 17
+console.log(result.commentsPosted); // 1
+console.log(result.hasCritical); // true
+```
+
+`createLumos()` returns a small handle with a single `analyze()` function; the consumer does not manage the orchestrator lifecycle directly.
+
+### Local Testing
+
+```bash
+# Dry run (parses report, builds prompt, skips AI call)
+npx tsx scripts/test-local.ts
+
+# Live run (calls AI, posts PR comment)
+npx tsx scripts/test-local.ts --live
+
+# Against a specific PR
+npx tsx scripts/test-local.ts --live --pr 4638
+```
+
+## Project Structure
+
+```
+src/
+  index.ts              -- Async factory (createLumos) + all exports
+  config.ts             -- 3-layer config loader (defaults < YAML < env vars) with Zod validation
+  orchestrator.ts       -- Main class: initialize MCP servers, run AI analysis, track tokens/cost
+  parsers/
+    types.ts            -- All TypeScript interfaces
+    playwright.ts       -- Playwright JSON report parser
+  prompts/
+    system-prompt.ts    -- System prompt + user message builders
+    schemas.ts          -- Zod schemas for structured AI output (future use)
+  utils/
+    errors.ts           -- Custom error hierarchy (6 classes)
+    logger.ts           -- Leveled logger
+scripts/
+  test-local.ts         -- Local test runner with fixture reports
+```
+
+## Development
+
+```bash
+pnpm run typecheck      # Type check without emitting
+pnpm run lint           # ESLint
+pnpm run format:check   # Prettier check
+pnpm run validate       # Lint + format check
+pnpm run validate:all   # validate + test
+pnpm run build          # Compile to dist/
+pnpm run dev            # Watch mode
+```
+
+## Validation Status
+
+Representative validation runs against Jenkins reports:
+
+| PR    | Failures | PR-Caused | Flaky/Pre-existing | Infra | Tokens | Duration |
+| ----- | -------- | --------- | ------------------ | ----- | ------ | -------- |
+| #4610 | 4        | 0         | 4                  | 0     | 131k   | ~3 min   |
+| #4571 | 9        | 4         | 5                  | 0     | 540k   | ~8 min   |
+| #4638 | 17       | 10        | 5                  | 3     | 250k   | 210.8s   |
+
+Current local verification:
+
+- `pnpm typecheck` passes
+- `pnpm test` passes with no test files present (`vitest` is configured with `passWithNoTests`)
+
+## License
+
+MIT

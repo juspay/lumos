@@ -1,0 +1,97 @@
+{
+  "name": "@juspay/lumos",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AI-powered test failure analysis agent -- correlates Playwright failures with PR changes and posts fix suggestions.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "lumos.config.yaml"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run clean && pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:local": "tsx scripts/test-local.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "validate": "pnpm run lint && pnpm run format:check",
+    "validate:all": "pnpm run validate && pnpm run test",
+    "prepare": "husky install",
+    "pre-push": "pnpm run validate:all",
+    "release": "semantic-release"
+  },
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "dependencies": {
+    "@juspay/neurolink": "^9.29.0",
+    "yaml": "^2.4.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "semantic-release": "^22.0.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^11.0.0",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^9.0.0",
+    "@semantic-release/npm": "^11.0.0",
+    "@semantic-release/release-notes-generator": "^12.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
+    "prettier": "^3.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.5",
+    "tsx": "^4.0.0",
+    "vitest": "^3.0.0",
+    "@commitlint/cli": "^17.0.0",
+    "@commitlint/config-conventional": "^17.0.0"
+  },
+  "keywords": [
+    "lumos",
+    "testing",
+    "playwright",
+    "ai",
+    "neurolink",
+    "failure-analysis"
+  ],
+  "author": "Juspay Technologies PVT LTD",
+  "license": "MIT",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juspay/lumos.git"
+  },
+  "bugs": {
+    "url": "https://github.com/juspay/lumos/issues"
+  },
+  "homepage": "https://github.com/juspay/lumos#readme",
+  "lint-staged": {
+    "src/**/*.{js,ts,jsx,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  }
+}
