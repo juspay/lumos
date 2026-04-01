@@ -34,7 +34,8 @@ describe('parsePlaywrightReport', () => {
                       duration: 12,
                       error: {
                         message: 'first failure',
-                        stack: 'Error: first\n    at test (tests/login.spec.ts:10:5)',
+                        stack:
+                          'Error: first\n    at test (tests/login.spec.ts:10:5)',
                       },
                     },
                   ],
@@ -46,7 +47,8 @@ describe('parsePlaywrightReport', () => {
                       duration: 18,
                       error: {
                         message: 'second failure',
-                        stack: 'Error: second\n    at test (tests/login.spec.ts:14:5)',
+                        stack:
+                          'Error: second\n    at test (tests/login.spec.ts:14:5)',
                       },
                     },
                   ],

@@ -11,13 +11,23 @@
           { "type": "perf", "release": "patch" },
           { "type": "docs", "release": false },
           { "breaking": true, "release": "major" }
-        ]
+        ],
+        "parserOpts": {
+          "headerPattern": "^(?:\\w+-\\d+:\\s*)?(\\w+!?)(\\([\\w\\$\\.\\-\\*\\s]*\\))?\\s*:(.*)$",
+          "headerCorrespondence": ["type", "scope", "subject"],
+          "noteKeywords": ["BREAKING CHANGE", "BREAKING CHANGES", "BREAKING"]
+        }
       }
     ],
     [
       "@semantic-release/release-notes-generator",
       {
         "preset": "conventionalcommits",
+        "parserOpts": {
+          "headerPattern": "^(?:\\w+-\\d+:\\s*)?(\\w+!?)(\\([\\w\\$\\.\\-\\*\\s]*\\))?\\s*:(.*)$",
+          "headerCorrespondence": ["type", "scope", "subject"],
+          "noteKeywords": ["BREAKING CHANGE", "BREAKING CHANGES", "BREAKING"]
+        },
         "presetConfig": {
           "types": [
             { "type": "feat", "section": "Features" },
@@ -48,14 +58,20 @@
       }
     ],
     "@semantic-release/changelog",
-    "@semantic-release/npm",
+    [
+      "@semantic-release/npm",
+      {
+        "npmPublish": true,
+        "provenance": true
+      }
+    ],
+    "@semantic-release/github",
     [
       "@semantic-release/git",
       {
         "assets": ["package.json", "CHANGELOG.md"],
         "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
       }
-    ],
-    "@semantic-release/github"
+    ]
   ]
 }

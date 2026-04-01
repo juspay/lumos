@@ -23,16 +23,18 @@ added. -->
 
 ## Dev Dependencies
 
-| Package                                               | Purpose                                   |
-| ----------------------------------------------------- | ----------------------------------------- |
-| `vitest`                                              | Unit testing framework (with v8 coverage) |
-| `eslint` + `@eslint/js` + `typescript-eslint`         | Linting                                   |
-| `prettier`                                            | Code formatting                           |
-| `husky`                                               | Git hooks (commit-msg, pre-commit)        |
-| `@commitlint/cli` + `@commitlint/config-conventional` | Commit message linting                    |
-| `semantic-release`                                    | Automated versioning and changelog        |
-| `lint-staged`                                         | Run linters on staged files only          |
-| `typescript`                                          | TypeScript compiler                       |
+| Package                                               | Purpose                                           |
+| ----------------------------------------------------- | ------------------------------------------------- |
+| `vitest`                                              | Unit testing framework (with v8 coverage)         |
+| `eslint` + `@eslint/js` + `typescript-eslint`         | Linting                                           |
+| `prettier`                                            | Code formatting                                   |
+| `husky`                                               | Git hooks (commit-msg, pre-commit). v9+ format -- |
+|                                                       | hooks contain only commands, no shebang/husky.sh  |
+| `@commitlint/cli` + `@commitlint/config-conventional` | Commit message linting                            |
+| `semantic-release` + plugins                          | Automated versioning, changelog, npm publish      |
+| `conventional-changelog-conventionalcommits`          | Conventional commits preset for semantic-release  |
+| `lint-staged`                                         | Run linters on staged files only                  |
+| `typescript`                                          | TypeScript compiler                               |
 
 MCP servers are NOT direct deps -- loaded via NeuroLink's stdio transport:
 
@@ -153,6 +155,33 @@ Status values: 'passed' | 'failed' | 'timedOut' | 'interrupted' | 'skipped'
 spec.ok: true if test ultimately passed (including after retries)
 ```
 
+## Release Pipeline
+
+Publishing is triggered by pushing to the `release` branch. The
+`.github/workflows/release.yml` workflow runs semantic-release which:
+
+1. Analyzes commits since the last tag to determine version bump (major/minor/patch)
+2. Generates release notes and updates `CHANGELOG.md`
+3. Publishes to npm with OIDC provenance (no `NPM_TOKEN` needed)
+4. Creates a GitHub release
+5. Commits version bump back to the repo
+
+**Authentication**: OIDC provenance. The workflow has `id-token: write`
+permission and `.releaserc.json` sets `"provenance": true` on the npm plugin.
+GitHub Actions generates a short-lived OIDC token; npm verifies it. This is
+the same pattern used by `@juspay/neurolink`.
+
+**First release**: No git tags exist yet. semantic-release will produce `1.0.0`
+from the full commit history. Subsequent `feat` commits bump minor, `fix`
+commits bump patch.
+
+**Jira prefix handling**: Commit messages like `BZ-1234: feat: add X` have the
+Jira prefix stripped by a custom `headerPattern` in `.releaserc.json` so
+semantic-release correctly identifies the conventional commit type.
+
+**Husky disabled in CI**: `HUSKY: '0'` env var prevents git hooks from running
+during the automated release commit.
+
 ## Build and Run Commands
 
 ```bash
@@ -180,6 +209,9 @@ npx tsx scripts/test-local.ts           # defaults to PR 4598
 
 # Local test (live, calls AI + posts PR comment)
 npx tsx scripts/test-local.ts --live --pr 4638
+
+# Verify package contents before publish
+npm pack --dry-run                        # lists files + size (should be ~34.5 kB, 40 files)
 
 # In Jenkins (via Lighthouse) -- not yet integrated
 node scripts/run-lumos.js --type=mock --pr-id=${prId} --workspace=BZ --repository=lighthouse

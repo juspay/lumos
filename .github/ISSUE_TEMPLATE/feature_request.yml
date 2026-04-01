@@ -34,7 +34,7 @@ body:
       placeholder: Ex. I'm always frustrated when [...]
     validations:
       required: true
-      
+
   - type: textarea
     id: solution
     attributes:

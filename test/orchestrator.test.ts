@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { NeuroLink } from '@juspay/neurolink';
+import type { GenerateApiResult } from '@juspay/neurolink';
 import { LumosOrchestrator } from '../src/orchestrator.js';
 import type { LumosConfig } from '../src/config.js';
 import type { AnalyzeOptions } from '../src/parsers/types.js';
@@ -124,21 +126,16 @@ function writeFailingReport(): { projectRoot: string; reportPath: string } {
 
 function createOrchestrator(
   projectRoot: string,
-  generateResult: Record<string, unknown>
+  generateResult: GenerateApiResult
 ): LumosOrchestrator {
-  const orchestrator = new LumosOrchestrator(projectRoot) as LumosOrchestrator & {
-    initialized: boolean;
-    config: LumosConfig;
-    systemPrompt: string;
-    neurolink: { generate: ReturnType<typeof vi.fn> };
-  };
+  const orchestrator = new LumosOrchestrator(projectRoot);
 
-  orchestrator.initialized = true;
-  orchestrator.config = buildConfig();
-  orchestrator.systemPrompt = 'test system prompt';
-  orchestrator.neurolink = {
-    generate: vi.fn().mockResolvedValue(generateResult),
-  };
+  orchestrator['initialized'] = true;
+  orchestrator['config'] = buildConfig();
+  orchestrator['systemPrompt'] = 'test system prompt';
+  const neurolink = new NeuroLink();
+  vi.spyOn(neurolink, 'generate').mockResolvedValue(generateResult);
+  orchestrator['neurolink'] = neurolink;
 
   return orchestrator;
 }
@@ -210,13 +207,7 @@ describe('LumosOrchestrator reliability helpers', () => {
     };
 
     expect(
-      orchestrator.isRunIncomplete(
-        false,
-        'x'.repeat(4000),
-        [],
-        'stop',
-        false
-      )
+      orchestrator.isRunIncomplete(false, 'x'.repeat(4000), [], 'stop', false)
     ).toBe(true);
   });
 
@@ -289,7 +280,12 @@ describe('LumosOrchestrator analyze', () => {
       )
     );
     const fallbackSpy = vi
-      .spyOn(orchestrator as unknown as { postCommentFallback: () => Promise<boolean> }, 'postCommentFallback')
+      .spyOn(
+        orchestrator as unknown as {
+          postCommentFallback: () => Promise<boolean>;
+        },
+        'postCommentFallback'
+      )
       .mockResolvedValue(false);
 
     try {
@@ -323,7 +319,12 @@ describe('LumosOrchestrator analyze', () => {
     });
 
     const fallbackSpy = vi
-      .spyOn(orchestrator as unknown as { postCommentFallback: () => Promise<boolean> }, 'postCommentFallback')
+      .spyOn(
+        orchestrator as unknown as {
+          postCommentFallback: () => Promise<boolean>;
+        },
+        'postCommentFallback'
+      )
       .mockResolvedValue(true);
 
     try {
@@ -339,13 +340,7 @@ describe('LumosOrchestrator analyze', () => {
       expect(result.fallbackPosted).toBe(true);
       expect(result.incomplete).toBe(false);
       expect(result.attempts).toBe(2);
-      expect(
-        (
-          orchestrator as unknown as {
-            neurolink: { generate: ReturnType<typeof vi.fn> };
-          }
-        ).neurolink.generate
-      ).toHaveBeenCalledTimes(2);
+      expect(orchestrator['neurolink'].generate).toHaveBeenCalledTimes(2);
       expect(fallbackSpy).toHaveBeenCalledTimes(1);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });

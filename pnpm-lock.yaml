@@ -54,6 +54,9 @@ importers:
       '@typescript-eslint/parser':
         specifier: ^8.0.0
         version: 8.57.2(eslint@9.39.4)(typescript@5.9.3)
+      conventional-changelog-conventionalcommits:
+        specifier: ^7.0.0
+        version: 7.0.2
       eslint:
         specifier: ^9.0.0
         version: 9.39.4
@@ -3205,6 +3208,10 @@ packages:
   conventional-changelog-conventionalcommits@6.1.0:
     resolution: {integrity: sha512-3cS3GEtR78zTfMzk0AizXKKIdN4OvSh7ibNz6/DPbhWWQu7LqE/8+/GqSodV+sywUR2gpJAdP/1JFf4XtN7Zpw==}
     engines: {node: '>=14'}
+
+  conventional-changelog-conventionalcommits@7.0.2:
+    resolution: {integrity: sha512-NKXYmMR/Hr1DevQegFB4MwfM5Vv0m4UIxKZTTYuD98lpTknaZlSRrDOG4X7wIXpGkfsYxZTghUN+Qq+T0YQI7w==}
+    engines: {node: '>=16'}
 
   conventional-changelog-writer@7.0.1:
     resolution: {integrity: sha512-Uo+R9neH3r/foIvQ0MKcsXkX642hdm9odUp7TqgFS7BsalTcjzRlIfWZrZR1gbxOozKucaKt5KAbjW8J8xRSmA==}
@@ -10567,6 +10574,10 @@ snapshots:
       compare-func: 2.0.0
 
   conventional-changelog-conventionalcommits@6.1.0:
+    dependencies:
+      compare-func: 2.0.0
+
+  conventional-changelog-conventionalcommits@7.0.2:
     dependencies:
       compare-func: 2.0.0
 

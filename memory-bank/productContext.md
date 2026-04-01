@@ -40,6 +40,11 @@ does not affect the others or the build.
 6. Developer reads the Lumos comment, sees which failures their PR caused,
    applies the suggested fixes
 
+Lighthouse consumes Lumos via `npm install @juspay/lumos` (published to npm
+with OIDC provenance). Previously used `github:juspay/lumos` which failed
+because GitHub installs don't build `dist/`. The npm tarball includes pre-built
+`dist/` via the `prepublishOnly` script.
+
 ## Key Differentiator
 
 The existing analyzer marks ALL unknown failures as "Unknown Error Pattern" with

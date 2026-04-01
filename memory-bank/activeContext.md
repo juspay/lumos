@@ -6,47 +6,55 @@ content below this comment block. Keep under 60 lines. -->
 
 ## Current Focus
 
-V1.1 code remains on the `release` branch. Documentation and memory-bank drift
-were just synchronized to the current source. Next product step is still
-Lighthouse integration (run-lumos.js, lumos.config.yaml, Jenkinsfile modification).
+npm publishing configuration is complete. The `release.yml` workflow, `.releaserc.json`,
+and `package.json` have been updated to publish `@juspay/lumos` to npm with OIDC
+provenance (no NPM_TOKEN needed). Husky hooks fixed for v9+ compatibility.
+PR is open on `fix-build-issues-and-update-memory-bank` branch. Next step is
+merging to `release` to trigger the first npm publish.
 
 ## Recent Decisions
 
-- **Retry count fix**: Replaced `retryCount: number` with `totalAttempts` +
-  `failedAttempts` to give the AI accurate retry data (e.g., "2/3 failed").
-- **Comment format v2**: Structured per-failure blocks with Verdict, Error
-  snippet, Confidence, Before/After, Retries. 12 formatting rules.
-- **Comment dedup via MCP**: AI deletes old Lumos comments using MCP
-  `delete_comment` tool before posting new ones.
-- **Fallback comment posting**: If AI fails to call `add_comment` after retries,
-  orchestrator posts directly via Bitbucket REST API.
-- **Retry loop**: MAX_ATTEMPTS=2 in orchestrator. Detects incomplete runs
-  (no comment posted and no "no action needed" signal) and retries.
-- **Memory bank paths**: 3 Lighthouse files (not CLAUDE.md). Truncated at 15k
-  chars each in `loadMemoryBank()`.
-- **Documentation sync**: README + memory bank were aligned to current code for
-  env override names, config shape, exported error/type names, and validation wording.
-- **`lumos_plan.md` deleted**: Replaced by memory bank files + README.md.
-- **`neurolink-testing-agent-plan.md` deleted**: Same rationale.
+- **npm publish over GitHub install**: Lighthouse PR #4638 failed in Jenkins
+  because `github:juspay/lumos` doesn't build `dist/`. Publishing to npm solves
+  this -- `prepublishOnly` builds before upload, and npm serves the pre-built
+  tarball.
+- **OIDC provenance (no NPM_TOKEN)**: Following `@juspay/neurolink`'s pattern.
+  The workflow uses `id-token: write` permission and `"provenance": true` in
+  `.releaserc.json`. GitHub Actions generates a short-lived OIDC token; npm
+  verifies it with GitHub's OIDC provider.
+- **Neurolink as reference**: All publishing config (release.yml, .releaserc.json,
+  package.json prepare script) matches neurolink's setup as closely as possible.
+- **Plugin order in .releaserc.json**: `commit-analyzer` -> `release-notes-generator`
+  -> `changelog` -> `npm` (with provenance) -> `github` -> `git`. The `github`
+  release is created before the `git` version-bump commit (matches neurolink).
+- **Jira prefix stripping**: Custom `parserOpts.headerPattern` strips `BZ-1234:`
+  prefixes from commit messages so semantic-release correctly parses conventional
+  commit types.
+- **Husky v9+ hook format**: Removed deprecated shebang (`#!/usr/bin/env sh`)
+  and `husky.sh` source lines from `.husky/commit-msg` and `.husky/pre-commit`.
+  These cause warnings in v9 and will break in v10.
+- **Safe prepare script**: `"git rev-parse --git-dir > /dev/null 2>&1 && husky
+install || echo 'Skipping husky in non-git environment'"` -- gracefully
+  handles npm install in non-git contexts (CI, Docker).
 
 ## Open Questions / Blockers
 
-- **`hasCritical` false positive**: Non-deterministic -- Run 7 (PR 4598)
-  returned `hasCritical: true` incorrectly. Caused by `extractCommentInfo()`
-  falling back to `responseText` scanning which can match "PR-caused" in
-  non-critical context. Not yet fixed.
+- **First npm release**: No git tags exist yet. semantic-release will produce
+  `1.0.0` from the full commit history. Need to verify this works on first run.
+- **npm org OIDC linkage**: The `@juspay` npm org must have OIDC publishing
+  configured for the `juspay/lumos` GitHub repo. Should already work since
+  neurolink uses the same pattern, but needs verification on first publish.
+- **`hasCritical` false positive**: Still open (pre-existing issue).
+- **Lighthouse PR #4638 update**: After first npm publish, change the dep from
+  `"github:juspay/lumos"` to `"^1.0.0"`.
 
 ## Last Session Summary
 
-All V1.1 enhancements implemented, tested (10 runs across 3 PRs), reviewed
-(37 files, zero issues), and committed. Key V1.1 features: retry loop,
-fallback posting, comment dedup, token/cost tracking, Langfuse observability,
-comment format v2, retry count fix, typed errors, Zod config validation,
-devDeps (vitest, eslint, prettier, husky, semantic-release), CI/CD workflows,
-and comprehensive docs (README, CONTRIBUTING, CHANGELOG, LICENSE).
+Configured npm publishing with semantic-release and OIDC provenance. Updated
+`release.yml` (registry-url, OIDC permissions, Node 22, HUSKY=0), `.releaserc.json`
+(Jira prefix parsing, npm provenance, corrected plugin order), `package.json`
+(safe prepare script, added conventional-changelog-conventionalcommits). Fixed
+husky hooks for v9+ compatibility. Verified build: `pnpm install` + `pnpm build`
 
-Latest repo verification after the doc sync: `pnpm typecheck` passes, and
-`pnpm test` exits successfully with no test files present (`passWithNoTests`).
-
-Final validation run (PR 4638): 17 failures, 10 PR-caused + 5 flaky + 3 infra.
-250k tokens, $0.83, 210.8s. Comment posted first attempt, old comments deleted.
+- `npm pack --dry-run` all pass (34.5 kB, 40 files). Squashed commits, pushed,
+  and created PR.

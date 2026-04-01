@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
   packages: write
+  issues: write
+  pull-requests: write
+  id-token: write # Required for npm provenance
 
 jobs:
   release:
@@ -26,8 +29,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
+
+      - name: Upgrade npm for OIDC support
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -45,4 +52,4 @@ jobs:
         run: pnpm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          HUSKY: '0'

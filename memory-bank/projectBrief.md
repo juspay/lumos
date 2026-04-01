@@ -9,7 +9,7 @@ technical details. Changes only when the project's fundamental scope shifts. -->
 - **Name**: Lumos
 - **Package**: `@juspay/lumos`
 - **Version**: 1.0.0
-- **Repo**: `github.com/rajarshi-pal/lumos`
+- **Repo**: `github.com/juspay/lumos`
 - **Branch**: `release`
 - **Language**: TypeScript (strict, ESM, Node >= 20.12)
 
@@ -50,5 +50,7 @@ suggestions as PR comments.
 ## Consumers
 
 - **Primary**: Lighthouse CI pipeline (Jenkinsfile mock tests catch block)
-- **Pattern**: npm package consumed via `scripts/run-lumos.js` wrapper
-  (identical to how Lighthouse consumes `@juspay/yama` via `run-yama.js`)
+- **Pattern**: Published to npm as `@juspay/lumos`. Lighthouse installs via
+  `npm install @juspay/lumos` (not `github:juspay/lumos` -- GitHub installs
+  don't build `dist/`). Consumed via `scripts/run-lumos.js` wrapper (identical
+  to how Lighthouse consumes `@juspay/yama` via `run-yama.js`).

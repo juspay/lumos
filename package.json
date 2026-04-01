@@ -31,7 +31,7 @@
     "format:check": "prettier --check .",
     "validate": "pnpm run lint && pnpm run format:check",
     "validate:all": "pnpm run validate && pnpm run test",
-    "prepare": "husky install",
+    "prepare": "git rev-parse --git-dir > /dev/null 2>&1 && husky install || echo 'Skipping husky in non-git environment'",
     "pre-push": "pnpm run validate:all",
     "release": "semantic-release"
   },
@@ -64,7 +64,8 @@
     "tsx": "^4.0.0",
     "vitest": "^3.0.0",
     "@commitlint/cli": "^17.0.0",
-    "@commitlint/config-conventional": "^17.0.0"
+    "@commitlint/config-conventional": "^17.0.0",
+    "conventional-changelog-conventionalcommits": "^7.0.0"
   },
   "keywords": [
     "lumos",
@@ -86,11 +87,14 @@
   },
   "homepage": "https://github.com/juspay/lumos#readme",
   "lint-staged": {
-    "src/**/*.{js,ts,jsx,tsx}": [
+    "**/*.{js,ts,jsx,tsx,cjs,mjs}": [
       "eslint --fix",
       "prettier --write"
     ],
-    "*.{json,md}": [
+    "**/*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ],
+    ".prettierrc": [
       "prettier --write"
     ]
   }

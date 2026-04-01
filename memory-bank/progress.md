@@ -8,6 +8,7 @@ in the Section Index. -->
 ## Section Index
 
 - [V1 Core + V1.1 Enhancements](#v1-core--v11-enhancements) -- in this file
+- [npm Publishing Configuration](#npm-publishing-configuration) -- in this file
 - [Test Validation Results](#test-validation-results) -- in this file
 - [Remaining Planned Work](#remaining-planned-work) -- in this file
 - [Remaining Work Table](#remaining-work-table) -- in this file
@@ -16,8 +17,9 @@ in the Section Index. -->
 ## V1 Core + V1.1 Enhancements
 
 **Status**: Complete. All source code built, compiles cleanly, committed on
-`release` branch. Current local verification: `pnpm typecheck` passes; `pnpm test`
-passes with no test files present.
+`feat-lumos-test-analyzer-base-setup` branch. Current local verification:
+`pnpm typecheck` passes; `pnpm test` passes with unit tests in
+`test/orchestrator.test.ts` and `test/playwright.test.ts`.
 
 ### V1 Core Milestones
 
@@ -59,6 +61,45 @@ passes with no test files present.
 - **Docs sync (2026-03-30)**: README + memory bank updated to match current
   env override names, config shape, exported types, and validation wording.
 - **Deleted**: `lumos_plan.md`, `neurolink-testing-agent-plan.md`.
+
+## npm Publishing Configuration
+
+**Status**: Complete. All config changes committed on `fix-build-issues-and-update-memory-bank`
+branch. PR open. Awaiting merge to `release` to trigger first npm publish.
+
+**Root cause**: Lighthouse PR #4638 added `"@juspay/lumos": "github:juspay/lumos"`
+to `package.json`. When npm installs from GitHub, it clones the repo and runs
+the `prepare` script (`husky install`), which does NOT build `dist/`. Since
+`typescript` is a devDependency (not installed when consumed), `tsc` is
+unavailable. Result: `ERR_MODULE_NOT_FOUND` for `dist/index.js` in Jenkins.
+
+**Solution**: Publish to npm. The `prepublishOnly` script (`pnpm run clean &&
+pnpm run build`) builds `dist/` before upload. npm serves the pre-built tarball.
+
+**Reference**: `@juspay/neurolink` repo -- all config patterns match neurolink.
+
+### Changes Made
+
+- **`.github/workflows/release.yml`**: Added `registry-url: https://registry.npmjs.org`,
+  `id-token: write` / `issues: write` / `pull-requests: write` permissions,
+  bumped Node to 22, added `npm install -g npm@latest` for OIDC support,
+  added `HUSKY: '0'` env var, removed `NPM_TOKEN` (using OIDC provenance).
+- **`.releaserc.json`**: Added `parserOpts` with Jira prefix-stripping
+  `headerPattern` to `commit-analyzer` and `release-notes-generator`. Changed
+  bare `@semantic-release/npm` to `["@semantic-release/npm", {"npmPublish": true,
+"provenance": true}]`. Fixed plugin order to `npm -> github -> git` (matching
+  neurolink).
+- **`package.json`**: Safe `prepare` script for non-git environments (matches
+  neurolink). Added `conventional-changelog-conventionalcommits` devDependency.
+- **`.husky/commit-msg`**: Removed deprecated v9 shebang and `husky.sh` source.
+- **`.husky/pre-commit`**: Removed deprecated v9 shebang and `husky.sh` source.
+- **`pnpm-lock.yaml`**: Updated from `pnpm install`.
+
+### Build Verification
+
+- `pnpm install` -- clean
+- `pnpm run build` -- compiles to `dist/`
+- `npm pack --dry-run` -- 34.5 kB, 40 files (correct contents)
 
 ## Test Validation Results
 
@@ -134,15 +175,21 @@ Key findings across all runs:
 
 ## Remaining Work Table
 
-| Task                               | Repo       | Status      | Blocked?            |
-| ---------------------------------- | ---------- | ----------- | ------------------- |
-| `scripts/run-lumos.js`             | lighthouse | Pending     | Needs publish first |
-| `lumos.config.yaml` in Lighthouse  | lighthouse | Pending     | Needs publish first |
-| `package.json` dep addition        | lighthouse | Pending     | Needs publish first |
-| Jenkinsfile mock tests catch block | lighthouse | Pending     | Needs publish first |
-| Fix `hasCritical` false positive   | lumos      | Pending     | No                  |
-| Two-pass analysis                  | lumos      | Not started | No                  |
-| Structured output wiring           | lumos      | Not started | No                  |
+| Task                                 | Repo       | Status      | Blocked?            |
+| ------------------------------------ | ---------- | ----------- | ------------------- |
+| npm publish config                   | lumos      | Done        | --                  |
+| First npm release (merge to release) | lumos      | Pending     | PR approval         |
+| Lighthouse PR update to npm `^1.0.0` | lighthouse | Pending     | First npm publish   |
+| `scripts/run-lumos.js`               | lighthouse | Done        | --                  |
+| `lumos.config.yaml` in Lighthouse    | lighthouse | Done        | --                  |
+| `package.json` dep addition          | lighthouse | Done        | --                  |
+| Jenkinsfile mock tests catch block   | lighthouse | Done        | --                  |
+| Jenkinsfile beta catch block         | lighthouse | Deferred    | Validate mock first |
+| Jenkinsfile AI sanity catch block    | lighthouse | Deferred    | Validate mock first |
+| `orchestrator.test.ts` type fixes    | lumos      | Done        | --                  |
+| Fix `hasCritical` false positive     | lumos      | Pending     | No                  |
+| Two-pass analysis                    | lumos      | Not started | No                  |
+| Structured output wiring             | lumos      | Not started | No                  |
 
 ## Known Issues and Tech Debt
 
@@ -154,8 +201,6 @@ Key findings across all runs:
   gitignored (large, contain real test data). Local-only for development.
 - **`as never` cast**: `addExternalMCPServer` options use `as never` to bypass
   strict typing. Works at runtime but loses type safety.
-- **No unit tests yet**: vitest is configured with `passWithNoTests`. No actual
-  test files written.
 - **MCP child process cleanup**: After `generate()` completes, MCP server child
   processes may linger. Run 4 exhibited process hang. `process.exit(0)` added
   to test-local.ts as workaround. Production (Jenkins) is unaffected since the

@@ -33,23 +33,27 @@ times, or falls back to posting via Bitbucket REST API directly.
 
 ## File Map
 
-| File                           | Purpose                                                                                                                |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `src/index.ts`                 | Public API: async `createLumos()` factory + all exports                                                                |
-| `src/orchestrator.ts`          | `LumosOrchestrator` class: init, MCP registration, `analyze()` retry loop, fallback posting, cost tracking             |
-| `src/config.ts`                | 3-layer config loader with Zod validation (defaults -> YAML -> env overrides)                                          |
-| `src/parsers/types.ts`         | All TypeScript interfaces (TestFailure, AnalyzeOptions, TokenUsage, AnalysisResult, SessionData, etc.)                 |
-| `src/parsers/playwright.ts`    | Playwright JSON report parser (recursive suite walker, failedAttempts computation)                                     |
-| `src/prompts/system-prompt.ts` | System prompt + user message builders, memory bank loading (15k char truncation)                                       |
-| `src/prompts/schemas.ts`       | Zod schemas for structured output (future use)                                                                         |
-| `src/utils/errors.ts`          | Custom error hierarchy: LumosError, ConfigError, ReportParseError, MCPError, AnalysisTimeoutError, BudgetExceededError |
-| `src/utils/logger.ts`          | Leveled console logger with `[Lumos]` prefix                                                                           |
-| `scripts/test-local.ts`        | Local test script with PR_CONFIGS for 4598 and 4638                                                                    |
-| `lumos.config.yaml`            | Default config (litellm/glm-latest for local dev, budget limits)                                                       |
-| `vitest.config.ts`             | Test config (passWithNoTests, v8 coverage)                                                                             |
-| `eslint.config.js`             | ESLint flat config with typescript-eslint                                                                              |
-| `commitlint.config.cjs`        | Conventional commits enforcement                                                                                       |
-| `.releaserc.json`              | semantic-release config                                                                                                |
+| File                            | Purpose                                                                                                                |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`                  | Public API: async `createLumos()` factory + all exports                                                                |
+| `src/orchestrator.ts`           | `LumosOrchestrator` class: init, MCP registration, `analyze()` retry loop, fallback posting, cost tracking             |
+| `src/config.ts`                 | 3-layer config loader with Zod validation (defaults -> YAML -> env overrides)                                          |
+| `src/parsers/types.ts`          | All TypeScript interfaces (TestFailure, AnalyzeOptions, TokenUsage, AnalysisResult, SessionData, etc.)                 |
+| `src/parsers/playwright.ts`     | Playwright JSON report parser (recursive suite walker, failedAttempts computation)                                     |
+| `src/prompts/system-prompt.ts`  | System prompt + user message builders, memory bank loading (15k char truncation)                                       |
+| `src/prompts/schemas.ts`        | Zod schemas for structured output (future use)                                                                         |
+| `src/utils/errors.ts`           | Custom error hierarchy: LumosError, ConfigError, ReportParseError, MCPError, AnalysisTimeoutError, BudgetExceededError |
+| `src/utils/logger.ts`           | Leveled console logger with `[Lumos]` prefix                                                                           |
+| `scripts/test-local.ts`         | Local test script with PR_CONFIGS for 4598 and 4638                                                                    |
+| `lumos.config.yaml`             | Default config (litellm/glm-latest for local dev, budget limits)                                                       |
+| `vitest.config.ts`              | Test config (v8 coverage)                                                                                              |
+| `test/orchestrator.test.ts`     | Unit tests for LumosOrchestrator (analyze flow, retry, fallback)                                                       |
+| `test/playwright.test.ts`       | Unit tests for Playwright report parser                                                                                |
+| `.github/workflows/ci.yml`      | CI workflow: tests on Node 20.x and 22.x                                                                               |
+| `.github/workflows/release.yml` | npm publish pipeline: semantic-release with OIDC provenance on push to `release` branch                                |
+| `eslint.config.js`              | ESLint flat config with typescript-eslint                                                                              |
+| `commitlint.config.cjs`         | Conventional commits enforcement                                                                                       |
+| `.releaserc.json`               | semantic-release config: Jira prefix stripping, npm provenance, changelog, GitHub releases                             |
 
 ## Config Loading Pattern (3 layers)
 
@@ -201,3 +205,68 @@ All errors extend `LumosError` and carry a machine-readable `code` plus a
 | Typed error hierarchy                                 | Enables callers to `catch` specific error types (e.g., `McpError` vs `ConfigError`) for different handling strategies.                           |
 | 3-layer config with Zod                               | YAML for project defaults, env vars for per-run overrides (Jenkins stages), Zod catches invalid config early.                                    |
 | Langfuse observability (optional)                     | Traces AI calls for cost monitoring and debugging. Disabled by default; enabled via config or env vars.                                          |
+
+## Release & Publishing Pattern
+
+Published to npm as `@juspay/lumos` using semantic-release with OIDC provenance.
+Pattern matches `@juspay/neurolink` exactly.
+
+### Workflow Trigger
+
+Push to `release` branch triggers `.github/workflows/release.yml`. The workflow:
+
+1. Checks out code
+2. Sets up Node 22 with `registry-url: https://registry.npmjs.org`
+3. Upgrades npm (`npm install -g npm@latest`) for OIDC provenance support
+4. Installs dependencies (`pnpm install --frozen-lockfile`)
+5. Runs `npx semantic-release`
+
+Key env vars: `GITHUB_TOKEN` (automatic), `HUSKY: '0'` (disables git hooks
+during automated release). No `NPM_TOKEN` -- authentication is via OIDC.
+
+### semantic-release Plugin Chain (`.releaserc.json`)
+
+Execution order matters -- each plugin runs in sequence:
+
+1. **`@semantic-release/commit-analyzer`**: Parses commits using conventional
+   changelog preset. Custom `parserOpts.headerPattern` strips Jira ticket
+   prefixes (e.g., `BZ-1234: feat: add X` -> parsed as `feat: add X`).
+2. **`@semantic-release/release-notes-generator`**: Generates release notes
+   from parsed commits. Same Jira prefix stripping.
+3. **`@semantic-release/changelog`**: Writes `CHANGELOG.md`.
+4. **`@semantic-release/npm`**: Publishes to npm with `npmPublish: true` and
+   `provenance: true`. The `prepublishOnly` script builds `dist/` before upload.
+5. **`@semantic-release/github`**: Creates a GitHub release with the generated
+   notes.
+6. **`@semantic-release/git`**: Commits the version bump (`package.json`,
+   `pnpm-lock.yaml`, `CHANGELOG.md`) back to the repo.
+
+The `github` plugin runs BEFORE `git` -- the GitHub release is created before
+the version-bump commit. This matches neurolink's ordering.
+
+### OIDC Provenance Flow (no NPM_TOKEN)
+
+1. Workflow declares `permissions: id-token: write`
+2. GitHub Actions runtime generates a short-lived OIDC token proving the code
+   runs in the `juspay/lumos` repository
+3. `npm publish --provenance` sends this OIDC token to npm's registry
+4. npm verifies the token with GitHub's OIDC provider and accepts the publish
+5. Published packages show a "Provenance" badge on npmjs.com linking to the
+   exact commit and workflow run
+
+Requires: The `@juspay` npm org must have OIDC publishing configured for the
+GitHub repo (already set up since neurolink uses the same pattern).
+
+### Jira Prefix Stripping
+
+Commit messages often include Jira ticket prefixes: `BZ-1234: feat: add feature`.
+Without stripping, semantic-release sees the entire string as a non-conventional
+commit and skips it (no version bump).
+
+The `headerPattern` regex in both `commit-analyzer` and `release-notes-generator`:
+
+```
+/^(?:[A-Z]+-\d+[:\s]*)?(\w*)(?:\(([^)]*)\))?!?:\s(.*)$/
+```
+
+Captures: `type` (feat), `scope` (optional), `subject` (add feature).
