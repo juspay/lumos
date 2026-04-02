@@ -219,7 +219,7 @@ Push to `release` branch triggers `.github/workflows/release.yml`. The workflow:
 2. Sets up Node 22 with `registry-url: https://registry.npmjs.org`
 3. Upgrades npm (`npm install -g npm@latest`) for OIDC provenance support
 4. Installs dependencies (`pnpm install --frozen-lockfile`)
-5. Runs `npx semantic-release`
+5. Runs `npx semantic-release@25` (bypasses any pinned version in node_modules)
 
 Key env vars: `GITHUB_TOKEN` (automatic), `HUSKY: '0'` (disables git hooks
 during automated release). No `NPM_TOKEN` -- authentication is via OIDC.
@@ -256,6 +256,14 @@ the version-bump commit. This matches neurolink's ordering.
 
 Requires: The `@juspay` npm org must have OIDC publishing configured for the
 GitHub repo (already set up since neurolink uses the same pattern).
+
+**Version requirement**: `@semantic-release/npm` >= 13.1.0. Older versions
+(v11.x) use `npm whoami` for auth verification which requires a static
+`NPM_TOKEN`. v13.1.0 replaced this with a dry-run publish using the OIDC
+token. The first Lumos publish failed (E401) because it had v11.x; fixed via
+two approaches: (1) `npx semantic-release@25` in release.yml bypasses pinned
+versions, (2) upgraded packages in package.json to v13.1.4+. Same `npx`
+approach resolved the identical issue on `juspay/kriya` and `juspay/shooter`.
 
 ### Jira Prefix Stripping
 

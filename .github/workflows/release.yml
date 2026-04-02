@@ -49,7 +49,7 @@ jobs:
         run: npm pack --dry-run
 
       - name: Release
-        run: pnpm run release
+        run: npx semantic-release@25
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HUSKY: '0'

@@ -31,7 +31,9 @@ added. -->
 | `husky`                                               | Git hooks (commit-msg, pre-commit). v9+ format -- |
 |                                                       | hooks contain only commands, no shebang/husky.sh  |
 | `@commitlint/cli` + `@commitlint/config-conventional` | Commit message linting                            |
-| `semantic-release` + plugins                          | Automated versioning, changelog, npm publish      |
+| `semantic-release` v25+ plugins                       | Automated versioning, changelog, npm publish.     |
+|                                                       | Requires `@semantic-release/npm` >= 13.1.0 for    |
+|                                                       | OIDC trusted publishing (no NPM_TOKEN).           |
 | `conventional-changelog-conventionalcommits`          | Conventional commits preset for semantic-release  |
 | `lint-staged`                                         | Run linters on staged files only                  |
 | `typescript`                                          | TypeScript compiler                               |
@@ -170,6 +172,14 @@ Publishing is triggered by pushing to the `release` branch. The
 permission and `.releaserc.json` sets `"provenance": true` on the npm plugin.
 GitHub Actions generates a short-lived OIDC token; npm verifies it. This is
 the same pattern used by `@juspay/neurolink`.
+
+**Critical version requirement**: OIDC trusted publishing requires
+`@semantic-release/npm` >= 13.1.0 (added in Oct 2025). Older versions (v11.x)
+use `npm whoami` which requires a static `NPM_TOKEN`. The first publish attempt
+failed with E401 because Lumos originally had v11.x. Fixed via two approaches:
+(1) `release.yml` uses `npx semantic-release@25` to bypass pinned versions at
+runtime -- same fix applied on `juspay/kriya` and `juspay/shooter`,
+(2) upgraded packages in `package.json` to v13.1.4+ for consistency.
 
 **First release**: No git tags exist yet. semantic-release will produce `1.0.0`
 from the full commit history. Subsequent `feat` commits bump minor, `fix`

@@ -64,8 +64,9 @@ in the Section Index. -->
 
 ## npm Publishing Configuration
 
-**Status**: Complete. All config changes committed on `fix-build-issues-and-update-memory-bank`
-branch. PR open. Awaiting merge to `release` to trigger first npm publish.
+**Status**: Config merged to `release`. First publish failed (E401). Two-part fix
+applied. PR open on `fix/upgrade-semantic-release-for-oidc` targeting
+`juspay/lumos:release`.
 
 **Root cause**: Lighthouse PR #4638 added `"@juspay/lumos": "github:juspay/lumos"`
 to `package.json`. When npm installs from GitHub, it clones the repo and runs
@@ -78,7 +79,7 @@ pnpm run build`) builds `dist/` before upload. npm serves the pre-built tarball.
 
 **Reference**: `@juspay/neurolink` repo -- all config patterns match neurolink.
 
-### Changes Made
+### Changes Made (Phase 1 -- merged to `release`)
 
 - **`.github/workflows/release.yml`**: Added `registry-url: https://registry.npmjs.org`,
   `id-token: write` / `issues: write` / `pull-requests: write` permissions,
@@ -95,10 +96,45 @@ pnpm run build`) builds `dist/` before upload. npm serves the pre-built tarball.
 - **`.husky/pre-commit`**: Removed deprecated v9 shebang and `husky.sh` source.
 - **`pnpm-lock.yaml`**: Updated from `pnpm install`.
 
+### First Publish Failure (E401)
+
+The workflow triggered on merge to `release` but failed at `verifyConditions`:
+
+```
+npm error code E401
+npm error 401 Unauthorized - GET https://registry.npmjs.org/-/whoami
+EINVALIDNPMTOKEN Invalid npm token.
+```
+
+**Root cause**: `@semantic-release/npm@11.x` uses `npm whoami` to verify auth.
+This requires a static `NPM_TOKEN` env var. The workflow uses OIDC (no token),
+but OIDC support was only added in `@semantic-release/npm@13.1.0`.
+
+### Changes Made (Phase 2 -- OIDC fix, PR open)
+
+Two-part fix (belt and suspenders):
+
+**Part A -- `release.yml`**: Changed `pnpm run release` to `npx semantic-release@25`.
+This bypasses the pinned v22 in node_modules and runs v25 which supports OIDC
+`verifyConditions`. Same pattern resolved the identical E401 on `juspay/kriya`
+and `juspay/shooter`.
+
+**Part B -- `package.json`**: Upgraded 5 semantic-release packages to match
+neurolink's known-working versions:
+
+| Package                                     | Old       | New       |
+| ------------------------------------------- | --------- | --------- |
+| `semantic-release`                          | `^22.0.0` | `^25.0.3` |
+| `@semantic-release/npm`                     | `^11.0.0` | `^13.1.4` |
+| `@semantic-release/commit-analyzer`         | `^11.0.0` | `^13.0.1` |
+| `@semantic-release/github`                  | `^9.0.0`  | `^12.0.6` |
+| `@semantic-release/release-notes-generator` | `^12.0.0` | `^14.1.0` |
+
 ### Build Verification
 
-- `pnpm install` -- clean
+- `pnpm install` -- clean (net +88 -59 packages)
 - `pnpm run build` -- compiles to `dist/`
+- `npx semantic-release --dry-run` -- all 6 plugins load with v25
 - `npm pack --dry-run` -- 34.5 kB, 40 files (correct contents)
 
 ## Test Validation Results
@@ -178,7 +214,8 @@ Key findings across all runs:
 | Task                                 | Repo       | Status      | Blocked?            |
 | ------------------------------------ | ---------- | ----------- | ------------------- |
 | npm publish config                   | lumos      | Done        | --                  |
-| First npm release (merge to release) | lumos      | Pending     | PR approval         |
+| semantic-release version upgrade     | lumos      | Done        | --                  |
+| First npm release (push to release)  | lumos      | In Progress | --                  |
 | Lighthouse PR update to npm `^1.0.0` | lighthouse | Pending     | First npm publish   |
 | `scripts/run-lumos.js`               | lighthouse | Done        | --                  |
 | `lumos.config.yaml` in Lighthouse    | lighthouse | Done        | --                  |
