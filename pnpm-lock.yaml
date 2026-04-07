@@ -11,6 +11,12 @@ importers:
       '@juspay/neurolink':
         specifier: ^9.29.0
         version: 9.29.0(@anthropic-ai/sdk@0.40.1)(@azure/identity@4.13.1)(@azure/search-documents@12.2.0)(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20260317.1)(@langchain/core@1.1.34(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.202.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.0.1(@opentelemetry/api@1.9.0))(openai@4.104.0(ws@8.19.0)(zod@3.25.76))(ws@8.19.0))(@mistralai/mistralai@1.15.1)(@opentelemetry/api@1.9.0)(@opentelemetry/sdk-trace-base@2.0.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-node@2.0.1(@opentelemetry/api@1.9.0))(@qdrant/js-client-rest@1.13.0(typescript@5.9.3))(@supabase/supabase-js@2.99.3)(@types/jest@29.5.14)(@types/node@20.19.37)(@types/pg@8.6.1)(better-sqlite3@12.8.0)(cloudflare@4.5.0)(groq-sdk@0.3.0)(neo4j-driver@5.28.3)(ollama@0.5.18)(pg@8.11.3)(react@19.2.4)
+      '@nexus2520/bitbucket-mcp-server':
+        specifier: ^2.0.2
+        version: 2.0.2(@cfworker/json-schema@4.1.1)(zod@3.25.76)
+      '@nexus2520/jira-mcp-server':
+        specifier: ^1.1.2
+        version: 1.1.2(@cfworker/json-schema@4.1.1)(zod@3.25.76)
       yaml:
         specifier: ^2.4.0
         version: 2.8.2
@@ -1213,6 +1219,16 @@ packages:
   '@napi-rs/canvas@0.1.97':
     resolution: {integrity: sha512-8cFniXvrIEnVwuNSRCW9wirRZbHvrD3JVujdS2P5n5xiJZNZMOZcfOvJ1pb66c7jXMKHHglJEDVJGbm8XWFcXQ==}
     engines: {node: '>= 10'}
+
+  '@nexus2520/bitbucket-mcp-server@2.0.2':
+    resolution: {integrity: sha512-ZxsbVavwpki7D2dWBz6a/mwWuqMog5F/fG7hMdDQDrQvfkkJYpQt70ORIeCNrlcg22+agupoTFSMg6hldgp3nA==}
+    engines: {node: '>=16.0.0'}
+    hasBin: true
+
+  '@nexus2520/jira-mcp-server@1.1.2':
+    resolution: {integrity: sha512-WIaWVd+fF0v0z4XHu2Z5hRAdSrTx1iCFz+6DL5M4OSJX2k0QmyECQ2+YjXfS0X9RV3x/4V7qD4gzHCRNngo8Gw==}
+    engines: {node: '>=16.0.0'}
+    hasBin: true
 
   '@octokit/auth-token@6.0.0':
     resolution: {integrity: sha512-P4YJBPdPSpWTQ1NU4XYdvHvXJJDxM6YwpS0FZHRgP7YFkdVxsWcpWGy/NVqlAA7PcPCnMacXlRm1y2PFZRWL/w==}
@@ -4794,6 +4810,10 @@ packages:
     resolution: {integrity: sha512-7o1wEA2RyMP7Iu7GNba9vc0RWWGACJOCZBJX2GJWip0ikV+wcOsgVuY9uE8CPiyQhkGFSlhuSkZPavN7u1c2Fw==}
     engines: {node: '>=10'}
 
+  minimatch@9.0.5:
+    resolution: {integrity: sha512-G6T0ZX48xgozx7587koeX9Ys2NYy6Gmv//P89sEte9V9whIapMNF4idKxnW2QtCcLiTWlb/wfCabAtAFWhhBow==}
+    engines: {node: '>=16 || 14 >=14.17'}
+
   minimist-options@4.1.0:
     resolution: {integrity: sha512-Q4r8ghd80yhO/0j1O3B2BjweX3fiHg9cdOwjJd2J76Q135c+NDxGCqdYKQ1SKBuFfgWbAUzBfvYjPUEeNgqN1A==}
     engines: {node: '>= 6'}
@@ -8238,6 +8258,28 @@ snapshots:
       '@napi-rs/canvas-win32-arm64-msvc': 0.1.97
       '@napi-rs/canvas-win32-x64-msvc': 0.1.97
     optional: true
+
+  '@nexus2520/bitbucket-mcp-server@2.0.2(@cfworker/json-schema@4.1.1)(zod@3.25.76)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.27.1(@cfworker/json-schema@4.1.1)(zod@3.25.76)
+      axios: 1.13.6
+      minimatch: 9.0.5
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - debug
+      - supports-color
+      - zod
+
+  '@nexus2520/jira-mcp-server@1.1.2(@cfworker/json-schema@4.1.1)(zod@3.25.76)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.27.1(@cfworker/json-schema@4.1.1)(zod@3.25.76)
+      axios: 1.13.6
+      form-data: 4.0.5
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - debug
+      - supports-color
+      - zod
 
   '@octokit/auth-token@6.0.0': {}
 
@@ -12437,6 +12479,10 @@ snapshots:
       brace-expansion: 1.1.12
 
   minimatch@5.1.9:
+    dependencies:
+      brace-expansion: 2.0.2
+
+  minimatch@9.0.5:
     dependencies:
       brace-expansion: 2.0.2
 

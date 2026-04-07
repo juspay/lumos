@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
 import { NeuroLink } from '@juspay/neurolink';
 import { loadConfig, type LumosConfig } from './config.js';
 import { parsePlaywrightReport } from './parsers/playwright.js';
@@ -663,9 +663,16 @@ export class LumosOrchestrator {
 
     logger.info('Registering Bitbucket MCP server...');
 
+    // Use the locally installed binary instead of `npx -y`, which forces a
+    // registry check + possible download in CI and causes timeouts.
+    const bitbucketBin = join(
+      process.cwd(),
+      'node_modules/.bin/bitbucket-mcp-server'
+    );
+
     const result = await this.neurolink.addExternalMCPServer('bitbucket', {
-      command: 'npx',
-      args: ['-y', '@nexus2520/bitbucket-mcp-server'],
+      command: bitbucketBin,
+      args: [],
       transport: 'stdio',
       env: {
         BITBUCKET_URL: BITBUCKET_BASE_URL ?? 'https://bitbucket.juspay.net',
@@ -697,9 +704,13 @@ export class LumosOrchestrator {
     logger.info('Registering Jira MCP server...');
 
     try {
+      // Use the locally installed binary instead of `npx -y`, which forces a
+      // registry check + possible download in CI and causes timeouts.
+      const jiraBin = join(process.cwd(), 'node_modules/.bin/jira-mcp-server');
+
       const result = await this.neurolink.addExternalMCPServer('jira', {
-        command: 'npx',
-        args: ['-y', '@nexus2520/jira-mcp-server'],
+        command: jiraBin,
+        args: [],
         transport: 'stdio',
         env: {
           JIRA_API_TOKEN: jiraToken,

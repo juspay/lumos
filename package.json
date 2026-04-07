@@ -40,6 +40,8 @@
   },
   "dependencies": {
     "@juspay/neurolink": "^9.29.0",
+    "@nexus2520/bitbucket-mcp-server": "^2.0.2",
+    "@nexus2520/jira-mcp-server": "^1.1.2",
     "yaml": "^2.4.0",
     "zod": "^3.23.0"
   },
