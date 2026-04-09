@@ -203,28 +203,30 @@ Key findings across all runs:
 
 ## Remaining Work Table
 
-| Task                               | Repo       | Status      | Blocked?            |
-| ---------------------------------- | ---------- | ----------- | ------------------- |
-| npm publish config                 | lumos      | Done        | --                  |
-| semantic-release version upgrade   | lumos      | Done        | --                  |
-| npm self-upgrade crash fix         | lumos      | Done        | --                  |
-| Manual first publish (v1.0.0)      | lumos      | Done        | --                  |
-| MCP binary fix (local binary path) | lumos      | Done        | --                  |
-| OIDC fix (npm@11 + release.yml)    | lumos      | Uncommitted | User commit + push  |
-| Automated npm publish (v1.1.0)     | lumos      | Pending     | OIDC fix merge      |
-| Lighthouse PR dep `^1.0.0`         | lighthouse | Done        | --                  |
-| Lighthouse lockfile regen          | lighthouse | Pending     | npm publish 1.1.0   |
-| Lighthouse PR #4638 description    | lighthouse | Pending     | Lockfile regen      |
-| `scripts/run-lumos.js`             | lighthouse | Done        | --                  |
-| `lumos.config.yaml` in Lighthouse  | lighthouse | Done        | --                  |
-| `package.json` dep addition        | lighthouse | Done        | --                  |
-| Jenkinsfile mock tests catch block | lighthouse | Done        | --                  |
-| Jenkinsfile beta catch block       | lighthouse | Deferred    | Validate mock first |
-| Jenkinsfile AI sanity catch block  | lighthouse | Deferred    | Validate mock first |
-| `orchestrator.test.ts` type fixes  | lumos      | Done        | --                  |
-| Fix `hasCritical` false positive   | lumos      | Pending     | No                  |
-| Two-pass analysis                  | lumos      | Not started | No                  |
-| Structured output wiring           | lumos      | Not started | No                  |
+| Task                               | Repo       | Status      | Blocked?             |
+| ---------------------------------- | ---------- | ----------- | -------------------- |
+| npm publish config                 | lumos      | Done        | --                   |
+| semantic-release version upgrade   | lumos      | Done        | --                   |
+| npm self-upgrade crash fix         | lumos      | Done        | --                   |
+| Manual first publish (v1.0.0)      | lumos      | Done        | --                   |
+| MCP binary fix (local binary path) | lumos      | Done        | --                   |
+| OIDC fix (npm@11 + release.yml)    | lumos      | Done        | --                   |
+| Automated npm publish (v1.0.1)     | lumos      | Done        | --                   |
+| find-by-branch PR discovery        | lumos      | In PR       | --                   |
+| Lighthouse PR dep `^1.0.1`         | lighthouse | Done        | --                   |
+| Lighthouse lockfile regen          | lighthouse | Done        | --                   |
+| Lighthouse lockfile regen (1.1.0)  | lighthouse | Pending     | find-by-branch merge |
+| Lighthouse PR #4638 description    | lighthouse | Pending     | Lockfile regen       |
+| `scripts/run-lumos.js`             | lighthouse | Done        | --                   |
+| `lumos.config.yaml` in Lighthouse  | lighthouse | Done        | --                   |
+| `package.json` dep addition        | lighthouse | Done        | --                   |
+| Jenkinsfile mock tests catch block | lighthouse | Done        | --                   |
+| Jenkinsfile beta catch block       | lighthouse | Deferred    | Validate mock first  |
+| Jenkinsfile AI sanity catch block  | lighthouse | Deferred    | Validate mock first  |
+| `orchestrator.test.ts` type fixes  | lumos      | Done        | --                   |
+| Fix `hasCritical` false positive   | lumos      | Pending     | No                   |
+| Two-pass analysis                  | lumos      | Not started | No                   |
+| Structured output wiring           | lumos      | Not started | No                   |
 
 ## Known Issues and Tech Debt
 

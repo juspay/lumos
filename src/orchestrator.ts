@@ -130,12 +130,21 @@ export class LumosOrchestrator {
     }
 
     // -- Resolve PR ID -------------------------------------------------------
-    const pullRequestId = options.pullRequestId ?? '';
-    if (!pullRequestId) {
-      logger.warn(
-        'No pullRequestId provided. The AI agent will not be able to fetch ' +
-          'the PR diff or post comments. Provide --pr-id for full analysis.'
-      );
+    let pullRequestId = options.pullRequestId ?? '';
+    const branch = options.branch ?? '';
+
+    if (!pullRequestId || pullRequestId === '0') {
+      if (branch) {
+        pullRequestId = 'find-by-branch';
+        logger.info(
+          `No pullRequestId provided. AI will discover the PR from branch "${branch}".`
+        );
+      } else {
+        logger.warn(
+          'No pullRequestId or branch provided. The AI agent will not be able ' +
+            'to fetch the PR diff or post comments.'
+        );
+      }
     }
 
     // -- Build user message --------------------------------------------------
@@ -144,6 +153,7 @@ export class LumosOrchestrator {
       workspace: options.workspace,
       repository: options.repository,
       pullRequestId,
+      branch,
     });
 
     // -- Invoke AI agent -----------------------------------------------------
@@ -334,7 +344,11 @@ export class LumosOrchestrator {
 
     // -- Fallback: post comment directly if AI composed but didn't post ------
     let fallbackPosted = false;
-    if (!postState.verifiedPosted && !options.dryRun && options.pullRequestId) {
+    const numericPrId =
+      options.pullRequestId && options.pullRequestId !== '0'
+        ? options.pullRequestId
+        : undefined;
+    if (!postState.verifiedPosted && !options.dryRun && numericPrId) {
       const extractedComment =
         postState.attemptedCommentText ??
         this.extractLumosComment(responseText);
@@ -346,7 +360,7 @@ export class LumosOrchestrator {
         fallbackPosted = await this.postCommentFallback(
           options.workspace,
           options.repository,
-          options.pullRequestId,
+          numericPrId,
           extractedComment
         );
         if (fallbackPosted) {

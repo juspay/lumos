@@ -39,6 +39,7 @@ to understand WHAT changed and WHY tests broke.`);
   sections.push(`[AVAILABLE TOOLS]
 You have access to Bitbucket MCP tools:
 - get_pull_request: Fetch PR details including the full diff and comments
+- list_pull_requests: List pull requests for a repository (use to discover PR from branch name)
 - get_file_content: Read source files from the repository at a given ref/branch
 - search_code: Search for patterns in the codebase
 - add_comment: Post a comment on the PR
@@ -49,7 +50,11 @@ If Jira MCP is available you also have:
 
   // -- WORKFLOW --------------------------------------------------------------
   sections.push(`[WORKFLOW -- Follow these steps in order]
-1. FETCH the PR using get_pull_request(workspace, repository, pull_request_id).
+1. FETCH the PR:
+   - If a numeric Pull Request ID is provided, use get_pull_request(workspace, repository, pull_request_id).
+   - If the Pull Request ID is "find-by-branch", first call list_pull_requests(workspace, repository)
+     to find the OPEN pull request whose source branch matches the Branch name provided below.
+     Use the discovered PR ID for all subsequent steps.
    This returns the diff AND existing comments.
 2. DEDUPLICATE: Check existing PR comments. If any comment starts with
    "## Lumos" (case-insensitive), delete it using delete_comment. This ensures
@@ -207,6 +212,7 @@ export function buildUserMessage(
     workspace: string;
     repository: string;
     pullRequestId: string;
+    branch?: string;
   }
 ): string {
   const duration = formatDuration(stats.durationMs);
@@ -222,6 +228,9 @@ export function buildUserMessage(
   lines.push(`- Workspace: ${options.workspace}`);
   lines.push(`- Repository: ${options.repository}`);
   lines.push(`- Pull Request ID: ${options.pullRequestId}`);
+  if (options.branch) {
+    lines.push(`- Branch: ${options.branch}`);
+  }
   lines.push('');
 
   if (failures.length === 0) {

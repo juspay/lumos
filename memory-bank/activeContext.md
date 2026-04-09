@@ -6,50 +6,50 @@ content below this comment block. Keep under 60 lines. -->
 
 ## Current Focus
 
-`release.yml` has 3 uncommitted fixes to resolve the `ENEEDAUTH` npm publish
-failure. Once committed and pushed to `release`, semantic-release will publish
-a new version (1.1.0) containing the MCP binary fix from commit `cf1ea73`.
+Branch-based PR discovery feature (`find-by-branch`) — matching Yama's pattern.
+When Jenkins' `CHANGE_ID` is unavailable (PR ID is `0` or empty), Lumos now
+instructs the AI to discover the PR from the branch name using
+`list_pull_requests` MCP tool.
 
-### The 3 Fixes (uncommitted in `.github/workflows/release.yml`)
+### What Changed
 
-1. **Added `npx -y npm@11 install -g npm@11`** step after setup-node. npm's
-   native OIDC publish requires npm >= 11. Node 22 ships with npm ~10.9 which
-   doesn't handle OIDC reliably. Neurolink has this exact step; we removed a
-   similar `npm install -g npm@latest` step earlier (commit `81441e2`) because
-   `npm@latest` resolved to a broken version. Pinning to `npm@11` avoids this.
-2. **Changed `npx semantic-release@25` to `npx semantic-release`**. The version
-   pin downloads a fresh copy via npx; without the pin, it uses the locally
-   installed version from devDependencies (matching neurolink's pattern).
-3. **Added job-level `permissions` block** (id-token, contents, packages, issues,
-   pull-requests: write). Neurolink declares permissions at both top-level AND
-   job-level. Belt-and-suspenders to ensure `id-token: write` isn't stripped.
+- `orchestrator.ts`: PR ID `0`/empty + branch available -> sets
+  `pullRequestId = 'find-by-branch'`, passes `branch` to user message.
+  Fallback REST posting guarded to skip when PR ID is non-numeric.
+- `system-prompt.ts`: Added `list_pull_requests` to AVAILABLE TOOLS. Workflow
+  step 1 now branches: numeric ID -> `get_pull_request` directly,
+  `find-by-branch` -> `list_pull_requests` first to discover PR. User message
+  includes `Branch:` metadata when available.
+- `.prettierignore`: Added `.claude` directory.
 
-### Key Discovery: Trusted Publisher Was Already Configured
+### Context: Why This Was Needed
 
-Sachin confirmed that trusted publisher on npmjs.com for `@juspay/lumos` was
-already configured. The actual root cause was the missing npm@11 upgrade step
-(neurolink has it, lumos didn't). The `NPM_TOKEN` fallback approach is not the
-correct way -- OIDC-only is the pattern to follow (matching neurolink).
+Jenkins pipeline run on PR #4638 passed `--pr-id 0` (because `CHANGE_ID` was
+unavailable). Lumos called `get_pull_request` with ID 0, got no useful PR
+context, and the AI produced a shallow 245-token response with 0 comments.
 
 ## Recent Decisions
 
-- **No `NPM_TOKEN` fallback**: Sachin indicated OIDC is the correct approach.
-  Removed the `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` env var that was
-  previously added to `release.yml`.
-- **Pin npm@11 (not npm@latest)**: `npm@latest` caused a crash (npm/cli#9151)
-  when npm 10.9.7 tried to self-upgrade. Pinning to `npm@11` is safe and
-  matches neurolink.
+- **Match Yama's `find-by-branch` pattern**: AI-driven PR discovery via prompt
+  instruction, not programmatic Bitbucket API call. Consistent with Yama's
+  `PromptBuilder.js` approach.
+- **No Jenkinsfile changes needed**: `--pr-id 0` from Jenkins is handled by
+  Lumos internally. The branch name (`--branch`) is already passed.
+- **Fallback posting disabled for `find-by-branch`**: The orchestrator's REST
+  API fallback can't work without a numeric PR ID. If the AI discovers the PR
+  and posts via MCP, that's fine. If not, fallback is skipped.
 
-## Next Steps (sequential)
+## Completed Recently
 
-1. User commits and pushes `release.yml` changes to `release` branch via fork PR
-2. Merge triggers semantic-release -> publishes `@juspay/lumos@1.1.0` to npm
-3. Verify publish succeeds on GitHub Actions
-4. In Lighthouse: `pnpm install` to pick up 1.1.0 (semver `^1.0.0` auto-resolves)
-5. Regenerate `pnpm-lock.yaml`, commit, push to PR #4638
-6. Update PR #4638 description
+- OIDC fix merged to `release`, `@juspay/lumos@1.0.1` published to npm
+- Lighthouse updated to `^1.0.1`, lockfile regenerated
+- First Jenkins pipeline run: MCP servers registered, report parsed, AI invoked
+  (but PR ID `0` caused shallow analysis — fixed by this PR)
 
-## Open Questions / Blockers
+## Next Steps
 
-- **Waiting on user**: Commit + push the 3 `release.yml` fixes to trigger publish
-- **`hasCritical` false positive**: Still open (pre-existing issue, unrelated)
+1. Merge this PR (`feat/find-pr-by-branch`) to `release`
+2. semantic-release publishes new version (1.1.0)
+3. Update Lighthouse lockfile to pick up new version
+4. Re-run Jenkins build on PR #4638 — AI should discover PR and do full analysis
+5. Update PR #4638 description on Bitbucket
