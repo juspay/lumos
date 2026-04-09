@@ -64,78 +64,70 @@ in the Section Index. -->
 
 ## npm Publishing Configuration
 
-**Status**: Config merged to `release`. First publish failed (E401). Two-part fix
-applied. PR open on `fix/upgrade-semantic-release-for-oidc` targeting
-`juspay/lumos:release`.
+**Status**: `@juspay/lumos@1.0.0` published to npm (by Sachin, manually).
+OIDC automated publishing failed with `ENEEDAUTH`. Root cause identified:
+missing npm@11 upgrade step. Fix applied to `release.yml` (uncommitted, 3
+changes). Once pushed and merged, semantic-release will publish 1.1.0.
 
-**Root cause**: Lighthouse PR #4638 added `"@juspay/lumos": "github:juspay/lumos"`
-to `package.json`. When npm installs from GitHub, it clones the repo and runs
-the `prepare` script (`husky install`), which does NOT build `dist/`. Since
-`typescript` is a devDependency (not installed when consumed), `tsc` is
-unavailable. Result: `ERR_MODULE_NOT_FOUND` for `dist/index.js` in Jenkins.
-
-**Solution**: Publish to npm. The `prepublishOnly` script (`pnpm run clean &&
-pnpm run build`) builds `dist/` before upload. npm serves the pre-built tarball.
+**Original problem**: Lighthouse PR #4638 had `"@juspay/lumos": "github:juspay/lumos"`
+in `package.json`. GitHub installs don't build `dist/` (the `prepare` script was
+`husky install`, not a build step, and `typescript` is a devDependency). Fix:
+publish to npm where `prepublishOnly` builds `dist/` before upload.
 
 **Reference**: `@juspay/neurolink` repo -- all config patterns match neurolink.
 
-### Changes Made (Phase 1 -- merged to `release`)
+### Phase 1 -- Initial Config (merged to `release`)
 
-- **`.github/workflows/release.yml`**: Added `registry-url: https://registry.npmjs.org`,
-  `id-token: write` / `issues: write` / `pull-requests: write` permissions,
-  bumped Node to 22, added `npm install -g npm@latest` for OIDC support,
-  added `HUSKY: '0'` env var, removed `NPM_TOKEN` (using OIDC provenance).
-- **`.releaserc.json`**: Added `parserOpts` with Jira prefix-stripping
-  `headerPattern` to `commit-analyzer` and `release-notes-generator`. Changed
-  bare `@semantic-release/npm` to `["@semantic-release/npm", {"npmPublish": true,
-"provenance": true}]`. Fixed plugin order to `npm -> github -> git` (matching
-  neurolink).
-- **`package.json`**: Safe `prepare` script for non-git environments (matches
-  neurolink). Added `conventional-changelog-conventionalcommits` devDependency.
-- **`.husky/commit-msg`**: Removed deprecated v9 shebang and `husky.sh` source.
-- **`.husky/pre-commit`**: Removed deprecated v9 shebang and `husky.sh` source.
-- **`pnpm-lock.yaml`**: Updated from `pnpm install`.
+- `.github/workflows/release.yml`: registry-url, OIDC permissions, Node 22,
+  `npm install -g npm@latest`, `HUSKY: '0'`, no `NPM_TOKEN`.
+- `.releaserc.json`: Jira prefix-stripping `headerPattern`, `provenance: true`,
+  plugin order `npm -> github -> git`.
+- `package.json`: Safe `prepare` script, `conventional-changelog-conventionalcommits`.
+- `.husky/*`: Removed deprecated v9 shebang/`husky.sh`.
 
-### First Publish Failure (E401)
+### Phase 2 -- E401 Fix (merged to `release`, commit `b7ed6f3`)
 
-The workflow triggered on merge to `release` but failed at `verifyConditions`:
+First publish failed: `@semantic-release/npm@11.x` uses `npm whoami` (requires
+static `NPM_TOKEN`). OIDC support added in v13.1.0. Fix: upgraded all 5
+semantic-release packages to match neurolink, changed to `npx semantic-release@25`.
 
-```
-npm error code E401
-npm error 401 Unauthorized - GET https://registry.npmjs.org/-/whoami
-EINVALIDNPMTOKEN Invalid npm token.
-```
+### Phase 3 -- npm Self-Upgrade Crash Fix (merged, commit `81441e2`)
 
-**Root cause**: `@semantic-release/npm@11.x` uses `npm whoami` to verify auth.
-This requires a static `NPM_TOKEN` env var. The workflow uses OIDC (no token),
-but OIDC support was only added in `@semantic-release/npm@13.1.0`.
+`npm install -g npm@latest` crashed (npm/cli#9151) with npm 10.9.7 bundled in
+Node 22.22.2. Removed the step entirely as a temporary fix.
 
-### Changes Made (Phase 2 -- OIDC fix, PR open)
+### Phase 4 -- Manual First Publish
 
-Two-part fix (belt and suspenders):
+OIDC cannot create a brand-new package (404 "package not found"). Sachin
+manually published `@juspay/lumos@1.0.0` to npm. Confirmed live:
+version 1.0.0, MIT, 3 deps, 130.5 kB unpacked.
 
-**Part A -- `release.yml`**: Changed `pnpm run release` to `npx semantic-release@25`.
-This bypasses the pinned v22 in node_modules and runs v25 which supports OIDC
-`verifyConditions`. Same pattern resolved the identical E401 on `juspay/kriya`
-and `juspay/shooter`.
+### Phase 5 -- MCP Binary Fix (merged, commit `cf1ea73`)
 
-**Part B -- `package.json`**: Upgraded 5 semantic-release packages to match
-neurolink's known-working versions:
+Changed MCP server registration from `npx -y @nexus2520/...` to local binary
+path (`join(process.cwd(), 'node_modules/.bin/...')`). Moved MCP server packages
+from `devDependencies` to `dependencies`. Locally verified with
+`pnpm test:local -- --pr 4638`.
 
-| Package                                     | Old       | New       |
-| ------------------------------------------- | --------- | --------- |
-| `semantic-release`                          | `^22.0.0` | `^25.0.3` |
-| `@semantic-release/npm`                     | `^11.0.0` | `^13.1.4` |
-| `@semantic-release/commit-analyzer`         | `^11.0.0` | `^13.0.1` |
-| `@semantic-release/github`                  | `^9.0.0`  | `^12.0.6` |
-| `@semantic-release/release-notes-generator` | `^12.0.0` | `^14.1.0` |
+### Phase 6 -- ENEEDAUTH Root Cause + Fix (uncommitted)
 
-### Build Verification
+Release workflow ran after Phase 5 merge but `npm publish` failed with
+`ENEEDAUTH`. Deep investigation of `@semantic-release/npm@13.1.5` source:
 
-- `pnpm install` -- clean (net +88 -59 packages)
-- `pnpm run build` -- compiles to `dist/`
-- `npx semantic-release --dry-run` -- all 6 plugins load with v25
-- `npm pack --dry-run` -- 34.5 kB, 40 files (correct contents)
+- `verify-auth.js:86-88`: OIDC token exchange succeeds (GitHub issues JWT),
+  plugin returns early skipping `.npmrc` write
+- `publish.js:23-26`: Runs `npm publish` relying on npm CLI's native OIDC
+- **Problem**: npm CLI (10.9.7 bundled with Node 22) doesn't support native
+  OIDC publishing. Requires npm >= 11.
+
+Sachin confirmed trusted publisher was already configured on npmjs.com.
+The actual missing piece was the npm@11 upgrade step (neurolink has it).
+
+**3 fixes applied to `release.yml`** (uncommitted):
+
+1. Added `npx -y npm@11 install -g npm@11` (pinned, not `npm@latest`)
+2. Changed `npx semantic-release@25` -> `npx semantic-release` (use local version)
+3. Added job-level `permissions` block (matching neurolink's belt-and-suspenders)
 
 ## Test Validation Results
 
@@ -211,22 +203,28 @@ Key findings across all runs:
 
 ## Remaining Work Table
 
-| Task                                 | Repo       | Status      | Blocked?            |
-| ------------------------------------ | ---------- | ----------- | ------------------- |
-| npm publish config                   | lumos      | Done        | --                  |
-| semantic-release version upgrade     | lumos      | Done        | --                  |
-| First npm release (push to release)  | lumos      | In Progress | --                  |
-| Lighthouse PR update to npm `^1.0.0` | lighthouse | Pending     | First npm publish   |
-| `scripts/run-lumos.js`               | lighthouse | Done        | --                  |
-| `lumos.config.yaml` in Lighthouse    | lighthouse | Done        | --                  |
-| `package.json` dep addition          | lighthouse | Done        | --                  |
-| Jenkinsfile mock tests catch block   | lighthouse | Done        | --                  |
-| Jenkinsfile beta catch block         | lighthouse | Deferred    | Validate mock first |
-| Jenkinsfile AI sanity catch block    | lighthouse | Deferred    | Validate mock first |
-| `orchestrator.test.ts` type fixes    | lumos      | Done        | --                  |
-| Fix `hasCritical` false positive     | lumos      | Pending     | No                  |
-| Two-pass analysis                    | lumos      | Not started | No                  |
-| Structured output wiring             | lumos      | Not started | No                  |
+| Task                               | Repo       | Status      | Blocked?            |
+| ---------------------------------- | ---------- | ----------- | ------------------- |
+| npm publish config                 | lumos      | Done        | --                  |
+| semantic-release version upgrade   | lumos      | Done        | --                  |
+| npm self-upgrade crash fix         | lumos      | Done        | --                  |
+| Manual first publish (v1.0.0)      | lumos      | Done        | --                  |
+| MCP binary fix (local binary path) | lumos      | Done        | --                  |
+| OIDC fix (npm@11 + release.yml)    | lumos      | Uncommitted | User commit + push  |
+| Automated npm publish (v1.1.0)     | lumos      | Pending     | OIDC fix merge      |
+| Lighthouse PR dep `^1.0.0`         | lighthouse | Done        | --                  |
+| Lighthouse lockfile regen          | lighthouse | Pending     | npm publish 1.1.0   |
+| Lighthouse PR #4638 description    | lighthouse | Pending     | Lockfile regen      |
+| `scripts/run-lumos.js`             | lighthouse | Done        | --                  |
+| `lumos.config.yaml` in Lighthouse  | lighthouse | Done        | --                  |
+| `package.json` dep addition        | lighthouse | Done        | --                  |
+| Jenkinsfile mock tests catch block | lighthouse | Done        | --                  |
+| Jenkinsfile beta catch block       | lighthouse | Deferred    | Validate mock first |
+| Jenkinsfile AI sanity catch block  | lighthouse | Deferred    | Validate mock first |
+| `orchestrator.test.ts` type fixes  | lumos      | Done        | --                  |
+| Fix `hasCritical` false positive   | lumos      | Pending     | No                  |
+| Two-pass analysis                  | lumos      | Not started | No                  |
+| Structured output wiring           | lumos      | Not started | No                  |
 
 ## Known Issues and Tech Debt
 

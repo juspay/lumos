@@ -6,47 +6,50 @@ content below this comment block. Keep under 60 lines. -->
 
 ## Current Focus
 
-First npm publish to `@juspay/lumos` failed with E401 (`npm whoami` unauthorized).
-Root cause: `@semantic-release/npm@11.x` does not support OIDC trusted publishing
--- it uses the legacy `npm whoami` check which requires a static `NPM_TOKEN`.
-OIDC support was added in `@semantic-release/npm@13.1.0`.
+`release.yml` has 3 uncommitted fixes to resolve the `ENEEDAUTH` npm publish
+failure. Once committed and pushed to `release`, semantic-release will publish
+a new version (1.1.0) containing the MCP binary fix from commit `cf1ea73`.
 
-Two-part fix applied (belt and suspenders):
+### The 3 Fixes (uncommitted in `.github/workflows/release.yml`)
 
-1. `release.yml` changed from `pnpm run release` to `npx semantic-release@25`
-   -- bypasses pinned v22 in node_modules, guarantees v25 runs at CI time.
-2. Upgraded all 5 semantic-release packages in `package.json` to match neurolink
-   -- ensures plugins in node_modules are also v25-compatible.
+1. **Added `npx -y npm@11 install -g npm@11`** step after setup-node. npm's
+   native OIDC publish requires npm >= 11. Node 22 ships with npm ~10.9 which
+   doesn't handle OIDC reliably. Neurolink has this exact step; we removed a
+   similar `npm install -g npm@latest` step earlier (commit `81441e2`) because
+   `npm@latest` resolved to a broken version. Pinning to `npm@11` avoids this.
+2. **Changed `npx semantic-release@25` to `npx semantic-release`**. The version
+   pin downloads a fresh copy via npx; without the pin, it uses the locally
+   installed version from devDependencies (matching neurolink's pattern).
+3. **Added job-level `permissions` block** (id-token, contents, packages, issues,
+   pull-requests: write). Neurolink declares permissions at both top-level AND
+   job-level. Belt-and-suspenders to ensure `id-token: write` isn't stripped.
 
-PR open on `fix/upgrade-semantic-release-for-oidc` targeting `juspay/lumos:release`.
+### Key Discovery: Trusted Publisher Was Already Configured
+
+Sachin confirmed that trusted publisher on npmjs.com for `@juspay/lumos` was
+already configured. The actual root cause was the missing npm@11 upgrade step
+(neurolink has it, lumos didn't). The `NPM_TOKEN` fallback approach is not the
+correct way -- OIDC-only is the pattern to follow (matching neurolink).
 
 ## Recent Decisions
 
-- **`npx semantic-release@25` in release.yml**: Bypasses the pinned v22 in
-  node_modules. Same pattern used to fix the identical E401 issue on
-  `juspay/kriya` and `juspay/shooter`. This alone would fix the problem, but
-  we also upgraded the packages for consistency.
-- **Version upgrade in package.json**: Bumped `semantic-release` from `^22.0.0`
-  to `^25.0.3` and `@semantic-release/npm` from `^11.0.0` to `^13.1.4`. Also
-  bumped `commit-analyzer` (^13.0.1), `github` (^12.0.6), and
-  `release-notes-generator` (^14.1.0). All versions match neurolink exactly.
+- **No `NPM_TOKEN` fallback**: Sachin indicated OIDC is the correct approach.
+  Removed the `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` env var that was
+  previously added to `release.yml`.
+- **Pin npm@11 (not npm@latest)**: `npm@latest` caused a crash (npm/cli#9151)
+  when npm 10.9.7 tried to self-upgrade. Pinning to `npm@11` is safe and
+  matches neurolink.
+
+## Next Steps (sequential)
+
+1. User commits and pushes `release.yml` changes to `release` branch via fork PR
+2. Merge triggers semantic-release -> publishes `@juspay/lumos@1.1.0` to npm
+3. Verify publish succeeds on GitHub Actions
+4. In Lighthouse: `pnpm install` to pick up 1.1.0 (semver `^1.0.0` auto-resolves)
+5. Regenerate `pnpm-lock.yaml`, commit, push to PR #4638
+6. Update PR #4638 description
 
 ## Open Questions / Blockers
 
-- **npm org OIDC linkage**: The `@juspay` npm org must have OIDC publishing
-  configured for the `juspay/lumos` GitHub repo. Should work since neurolink
-  uses the same pattern, but `@juspay/lumos` is a brand-new package (never
-  published). If the OIDC token exchange still fails, Sachin may need to
-  pre-create the package or configure trusted publishing settings on npmjs.com.
-- **Lighthouse PR #4638 update**: After successful npm publish, change the dep
-  from `"github:juspay/lumos"` to `"^1.0.0"`.
-- **`hasCritical` false positive**: Still open (pre-existing issue).
-
-## Last Session Summary
-
-Diagnosed why the first npm publish failed: `@semantic-release/npm@11.x` lacks
-OIDC support (uses `npm whoami` instead of dry-run publish with OIDC token).
-Applied two-part fix: (1) `release.yml` now uses `npx semantic-release@25` to
-bypass the pinned v22 -- same pattern that fixed kriya and shooter repos,
-(2) upgraded all 5 semantic-release packages in `package.json` to match
-neurolink's versions. PR open targeting `juspay/lumos:release`.
+- **Waiting on user**: Commit + push the 3 `release.yml` fixes to trigger publish
+- **`hasCritical` false positive**: Still open (pre-existing issue, unrelated)

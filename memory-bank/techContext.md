@@ -38,7 +38,9 @@ added. -->
 | `lint-staged`                                         | Run linters on staged files only                  |
 | `typescript`                                          | TypeScript compiler                               |
 
-MCP servers are NOT direct deps -- loaded via NeuroLink's stdio transport:
+MCP servers are runtime `dependencies` (not devDependencies), loaded via
+NeuroLink's stdio transport using the locally installed binary
+(`node_modules/.bin/<server-name>`):
 
 - `@nexus2520/bitbucket-mcp-server` v0.9.1 (16+ tools)
 - `@nexus2520/jira-mcp-server` (optional)
@@ -168,22 +170,44 @@ Publishing is triggered by pushing to the `release` branch. The
 4. Creates a GitHub release
 5. Commits version bump back to the repo
 
-**Authentication**: OIDC provenance. The workflow has `id-token: write`
-permission and `.releaserc.json` sets `"provenance": true` on the npm plugin.
-GitHub Actions generates a short-lived OIDC token; npm verifies it. This is
-the same pattern used by `@juspay/neurolink`.
+**Authentication**: OIDC provenance (matching `@juspay/neurolink` exactly).
+The workflow has `id-token: write` permission at both top-level AND job-level
+(belt-and-suspenders). `.releaserc.json` sets `"provenance": true` on the npm
+plugin. GitHub Actions generates a short-lived OIDC token; npm CLI (>= 11)
+handles the token exchange natively during `npm publish`.
+
+**npm CLI version requirement**: Native OIDC publish requires npm >= 11. Node 22
+ships with npm ~10.9 which doesn't handle OIDC reliably. The workflow explicitly
+upgrades via `npx -y npm@11 install -g npm@11` (pinned to major 11, not
+`npm@latest` which caused a crash via npm/cli#9151).
+
+**semantic-release invocation**: `npx semantic-release` (no version pin). Uses
+the locally installed version from devDependencies. Previously pinned to
+`@25` which downloaded a fresh copy via npx and could bypass locally installed
+plugins.
 
 **Critical version requirement**: OIDC trusted publishing requires
 `@semantic-release/npm` >= 13.1.0 (added in Oct 2025). Older versions (v11.x)
 use `npm whoami` which requires a static `NPM_TOKEN`. The first publish attempt
-failed with E401 because Lumos originally had v11.x. Fixed via two approaches:
-(1) `release.yml` uses `npx semantic-release@25` to bypass pinned versions at
-runtime -- same fix applied on `juspay/kriya` and `juspay/shooter`,
-(2) upgraded packages in `package.json` to v13.1.4+ for consistency.
+failed with E401 because Lumos originally had v11.x. Fixed by upgrading to
+v13.1.4+ in package.json.
 
-**First release**: No git tags exist yet. semantic-release will produce `1.0.0`
-from the full commit history. Subsequent `feat` commits bump minor, `fix`
-commits bump patch.
+**How OIDC works in `@semantic-release/npm@13.1.5`**:
+
+1. `verify-auth.js:86-88`: During `verifyConditions`, calls `oidcContextEstablished()`
+   which does an OIDC token exchange with npm's API. If successful, returns early
+   (skips `.npmrc` writing).
+2. `publish.js:23-26`: Runs `npm publish --userconfig <empty-tmpfile>.npmrc`.
+   Relies on npm CLI's native OIDC to authenticate during publish.
+3. This only works if: (a) npm CLI >= 11 is available, AND (b) trusted publisher
+   is configured on npmjs.com for the package.
+
+**Trusted publisher**: Configured on npmjs.com for `@juspay/lumos` by Sachin
+(GitHub Actions: org=`juspay`, repo=`lumos`, workflow=`release.yml`).
+
+**First release**: v1.0.0 published manually by Sachin (OIDC cannot create a
+brand-new package). Subsequent releases are automated via semantic-release.
+`feat` commits bump minor, `fix` commits bump patch.
 
 **Jira prefix handling**: Commit messages like `BZ-1234: feat: add X` have the
 Jira prefix stripped by a custom `headerPattern` in `.releaserc.json` so

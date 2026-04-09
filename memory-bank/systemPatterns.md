@@ -73,9 +73,16 @@ models.
 ## MCP Registration Pattern
 
 ```typescript
+import { join } from 'node:path';
+
+// Use locally installed binary (not npx which hits registry in CI)
+const bitbucketBin = join(process.cwd(), 'node_modules/.bin/bitbucket-mcp-server');
+const jiraBin = join(process.cwd(), 'node_modules/.bin/jira-mcp-server');
+
 // Always register Bitbucket (core to analysis)
 await neurolink.addExternalMCPServer('bitbucket', {
-  command: 'npx', args: ['-y', '@nexus2520/bitbucket-mcp-server'],
+  command: bitbucketBin,
+  args: [],
   transport: 'stdio',
   env: { BITBUCKET_URL, BITBUCKET_USERNAME, BITBUCKET_TOKEN }
 } as never);
@@ -83,6 +90,16 @@ await neurolink.addExternalMCPServer('bitbucket', {
 // Optionally register Jira (controlled by config)
 if (config.mcpServers.jira.enabled) { ... }
 ```
+
+The MCP server packages (`@nexus2520/bitbucket-mcp-server`,
+`@nexus2520/jira-mcp-server`) are listed as runtime `dependencies` in
+`package.json` so their binaries are available in `node_modules/.bin/` when
+Lumos is installed by consumers (e.g., Lighthouse). This matches Yama's
+pattern in `MCPServerManager.ts`.
+
+Previously used `npx -y @nexus2520/bitbucket-mcp-server` which forces a
+registry check + possible download at runtime. This caused 60s timeouts in
+Jenkins CI due to network restrictions. Changed in commit `cf1ea73`.
 
 The `as never` cast bypasses strict `MCPServerInfo` typing -- runtime only
 needs `command`, `args`, `transport`, `env`.
@@ -217,12 +234,18 @@ Push to `release` branch triggers `.github/workflows/release.yml`. The workflow:
 
 1. Checks out code
 2. Sets up Node 22 with `registry-url: https://registry.npmjs.org`
-3. Upgrades npm (`npm install -g npm@latest`) for OIDC provenance support
+3. Upgrades npm to v11 (`npx -y npm@11 install -g npm@11`) for native OIDC
+   publish support. Pinned to `npm@11` (not `npm@latest` which crashed due to
+   npm/cli#9151 with npm 10.9.7 bundled in Node 22).
 4. Installs dependencies (`pnpm install --frozen-lockfile`)
-5. Runs `npx semantic-release@25` (bypasses any pinned version in node_modules)
+5. Runs `npx semantic-release` (uses locally installed version from devDeps)
 
 Key env vars: `GITHUB_TOKEN` (automatic), `HUSKY: '0'` (disables git hooks
-during automated release). No `NPM_TOKEN` -- authentication is via OIDC.
+during automated release). No `NPM_TOKEN` -- authentication is via OIDC only
+(matching neurolink's approach).
+
+Permissions are declared at both top-level AND job-level (belt-and-suspenders
+to ensure `id-token: write` isn't stripped by GitHub Actions inheritance).
 
 ### semantic-release Plugin Chain (`.releaserc.json`)
 
@@ -246,24 +269,30 @@ the version-bump commit. This matches neurolink's ordering.
 
 ### OIDC Provenance Flow (no NPM_TOKEN)
 
-1. Workflow declares `permissions: id-token: write`
-2. GitHub Actions runtime generates a short-lived OIDC token proving the code
-   runs in the `juspay/lumos` repository
-3. `npm publish --provenance` sends this OIDC token to npm's registry
-4. npm verifies the token with GitHub's OIDC provider and accepts the publish
+1. Workflow declares `permissions: id-token: write` (top-level + job-level)
+2. During `verifyConditions`, `@semantic-release/npm@13.1.5` does an OIDC token
+   exchange with npm's API (`verify-auth.js:86-88`). If successful, it returns
+   early (skips writing `.npmrc` with any static token).
+3. During `publish`, runs `npm publish --userconfig <empty-tmpfile>.npmrc`.
+   npm CLI >= 11 handles OIDC natively: requests a JWT from GitHub's OIDC
+   provider and sends it to npm's registry for authentication.
+4. npm verifies the token against the trusted publisher config on npmjs.com
+   and accepts the publish.
 5. Published packages show a "Provenance" badge on npmjs.com linking to the
-   exact commit and workflow run
+   exact commit and workflow run.
 
-Requires: The `@juspay` npm org must have OIDC publishing configured for the
-GitHub repo (already set up since neurolink uses the same pattern).
+**Prerequisites**:
 
-**Version requirement**: `@semantic-release/npm` >= 13.1.0. Older versions
-(v11.x) use `npm whoami` for auth verification which requires a static
-`NPM_TOKEN`. v13.1.0 replaced this with a dry-run publish using the OIDC
-token. The first Lumos publish failed (E401) because it had v11.x; fixed via
-two approaches: (1) `npx semantic-release@25` in release.yml bypasses pinned
-versions, (2) upgraded packages in package.json to v13.1.4+. Same `npx`
-approach resolved the identical issue on `juspay/kriya` and `juspay/shooter`.
+- npm CLI >= 11 (Node 22 ships with ~10.9, must upgrade explicitly)
+- `@semantic-release/npm` >= 13.1.0 (older v11.x uses `npm whoami` which
+  requires static `NPM_TOKEN`)
+- Trusted publisher configured on npmjs.com for the package (Sachin configured
+  this for `@juspay/lumos`: GitHub Actions, org=`juspay`, repo=`lumos`,
+  workflow=`release.yml`)
+- First version must be published manually (OIDC cannot create new packages)
+
+**Version history**: v1.0.0 published manually by Sachin. Automated OIDC
+publishing will produce v1.1.0+ once the release.yml fixes are merged.
 
 ### Jira Prefix Stripping
 
