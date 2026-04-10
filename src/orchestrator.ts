@@ -174,6 +174,19 @@ export class LumosOrchestrator {
       `Invoking AI agent with ${failures.length} failure(s) to analyze...`
     );
 
+    // Prompt size diagnostics -- helps pinpoint token budget issues
+    const systemPromptChars = this.systemPrompt.length;
+    const userMessageChars = userMessage.length;
+    const combinedChars = systemPromptChars + userMessageChars;
+    logger.info(
+      `[Lumos] Prompt size diagnostics:\n` +
+        `  System prompt: ${systemPromptChars} chars (~${Math.round(systemPromptChars / 4)} estimated tokens)\n` +
+        `  User message: ${userMessageChars} chars (~${Math.round(userMessageChars / 4)} estimated tokens)\n` +
+        `  Combined text: ${combinedChars} chars (~${Math.round(combinedChars / 4)} estimated tokens)\n` +
+        `  Failures: ${failures.length}\n` +
+        `  (Note: tool definitions add additional tokens on top of this -- check NeuroLink TokenBudget log for full breakdown)`
+    );
+
     const MAX_ATTEMPTS = 2;
     const startTime = new Date();
 
