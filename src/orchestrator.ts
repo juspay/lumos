@@ -32,8 +32,6 @@ function estimateUsdCost(usage: TokenUsage): number {
 interface CommentPostState {
   attempted: boolean;
   verifiedPosted: boolean;
-  postedCommentText?: string;
-  attemptedCommentText?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +190,6 @@ export class LumosOrchestrator {
 
     let responseText = '';
     let toolsUsed: string[] = [];
-    let toolResults: unknown[] | undefined;
     let finishReason: string | undefined;
     let tokenUsage: TokenUsage | undefined;
     let estimatedCost: number | undefined;
@@ -207,6 +204,28 @@ export class LumosOrchestrator {
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       attempts = attempt;
+
+      // -- Clean up previous Lumos comments before each attempt ---------------
+      // This is done at the orchestrator level because the AI does not
+      // reliably execute the DEDUPLICATE step from the system prompt.
+      const numericPrIdForCleanup =
+        pullRequestId &&
+        pullRequestId !== '0' &&
+        pullRequestId !== 'find-by-branch'
+          ? pullRequestId
+          : undefined;
+      if (numericPrIdForCleanup && !options.dryRun) {
+        const deleted = await this.deletePreviousLumosComments(
+          options.workspace,
+          options.repository,
+          numericPrIdForCleanup
+        );
+        if (deleted > 0) {
+          logger.info(
+            `Cleaned up ${deleted} previous Lumos comment(s) before attempt ${attempt}.`
+          );
+        }
+      }
 
       const inputText =
         attempt === 1
@@ -242,9 +261,6 @@ export class LumosOrchestrator {
 
       responseText = result.content ?? '';
       toolsUsed = result.toolsUsed ?? [];
-      toolResults = (result as Record<string, unknown>).toolResults as
-        | unknown[]
-        | undefined;
       finishReason = (result as Record<string, unknown>).finishReason as
         | string
         | undefined;
@@ -284,48 +300,11 @@ export class LumosOrchestrator {
         }
       }
 
-      // -- Extract posted comment from tool results --------------------------
-      postState = this.extractCommentInfo(toolResults, toolsUsed);
-
-      // If we started with "find-by-branch", try to recover the real numeric
-      // PR ID from the tool call args so verification and fallback work.
-      if (pullRequestId === 'find-by-branch') {
-        const discoveredId = this.extractDiscoveredPrId(toolResults);
-        if (discoveredId) {
-          logger.info(`Discovered real PR ID from tool calls: ${discoveredId}`);
-          pullRequestId = discoveredId;
-        }
-      }
-
-      const commentCandidate =
-        postState.attemptedCommentText ??
-        this.extractLumosComment(responseText) ??
-        undefined;
-
-      if (
-        postState.attempted &&
-        !postState.verifiedPosted &&
-        pullRequestId &&
-        commentCandidate
-      ) {
-        const verified = await this.verifyCommentPosted(
-          options.workspace,
-          options.repository,
-          pullRequestId,
-          commentCandidate
-        );
-        if (verified) {
-          postState = {
-            attempted: true,
-            verifiedPosted: true,
-            postedCommentText: commentCandidate,
-            attemptedCommentText: commentCandidate,
-          };
-        }
-      }
+      // -- Check if add_comment was called ------------------------------------
+      postState = this.extractCommentInfo(toolsUsed);
 
       postedCommentText = postState.verifiedPosted
-        ? postState.postedCommentText
+        ? (this.extractLumosComment(responseText) ?? undefined)
         : undefined;
 
       // -- Check if the run completed successfully ---------------------------
@@ -333,8 +312,7 @@ export class LumosOrchestrator {
         postState.verifiedPosted,
         responseText,
         toolsUsed,
-        finishReason,
-        postState.attempted
+        finishReason
       );
 
       if (!incomplete) {
@@ -374,9 +352,7 @@ export class LumosOrchestrator {
         ? pullRequestId
         : undefined;
     if (!postState.verifiedPosted && !options.dryRun && numericPrId) {
-      const extractedComment =
-        postState.attemptedCommentText ??
-        this.extractLumosComment(responseText);
+      const extractedComment = this.extractLumosComment(responseText);
       if (extractedComment) {
         logger.warn(
           'No verified Lumos comment post detected. Attempting fallback ' +
@@ -392,8 +368,6 @@ export class LumosOrchestrator {
           postState = {
             attempted: true,
             verifiedPosted: true,
-            postedCommentText: extractedComment,
-            attemptedCommentText: extractedComment,
           };
           postedCommentText = extractedComment;
           incomplete = false;
@@ -443,185 +417,22 @@ export class LumosOrchestrator {
   // Comment extraction
   // -------------------------------------------------------------------------
 
-  private extractCommentInfo(
-    toolResults: unknown[] | undefined,
-    toolsUsed: string[]
-  ): CommentPostState {
-    const toolState: CommentPostState = {
-      attempted: false,
-      verifiedPosted: false,
-    };
-
-    // Try to find add_comment calls in toolResults for precise extraction
-    if (toolResults && Array.isArray(toolResults)) {
-      for (const tr of toolResults) {
-        if (
-          tr &&
-          typeof tr === 'object' &&
-          'toolName' in tr &&
-          typeof (tr as Record<string, unknown>).toolName === 'string' &&
-          ((tr as Record<string, unknown>).toolName as string).includes(
-            'add_comment'
-          )
-        ) {
-          const args = (tr as Record<string, unknown>).args as
-            | Record<string, unknown>
-            | undefined;
-          const commentText =
-            args && typeof args.comment_text === 'string'
-              ? args.comment_text
-              : undefined;
-          toolState.attempted = true;
-          toolState.attemptedCommentText = commentText;
-
-          const verified = this.isSuccessfulAddCommentToolResult(
-            tr as Record<string, unknown>
-          );
-
-          if (verified) {
-            return {
-              attempted: true,
-              verifiedPosted: true,
-              postedCommentText: commentText,
-              attemptedCommentText: commentText,
-            };
-          }
-        }
-      }
-    }
-
-    toolState.attempted =
-      toolState.attempted || toolsUsed.some((t) => t.includes('add_comment'));
-    return toolState;
-  }
-
   /**
-   * Scan tool results for a numeric pull_request_id in the args of any
-   * Bitbucket tool call (add_comment, get_pull_request, etc.). Used to
-   * recover the real PR ID when the orchestrator started with
-   * "find-by-branch".
+   * Check whether the AI agent called add_comment during its run.
+   *
+   * We trust `toolsUsed` (aggregated from ALL agentic steps by NeuroLink)
+   * rather than `toolResults` (which only contains the last step's results
+   * and therefore misses add_comment calls from earlier steps).
    */
-  private extractDiscoveredPrId(
-    toolResults: unknown[] | undefined
-  ): string | undefined {
-    if (!toolResults || !Array.isArray(toolResults)) {
-      return undefined;
+  private extractCommentInfo(toolsUsed: string[]): CommentPostState {
+    const usedAddComment = toolsUsed.some((t) => t.includes('add_comment'));
+    if (usedAddComment) {
+      logger.info('add_comment found in toolsUsed — treating as verified.');
     }
-
-    const prToolNames = [
-      'add_comment',
-      'get_pull_request',
-      'get_pull_request_diff',
-    ];
-
-    for (const tr of toolResults) {
-      if (!tr || typeof tr !== 'object' || !('toolName' in tr)) {
-        continue;
-      }
-      const toolName = (tr as Record<string, unknown>).toolName;
-      if (
-        typeof toolName !== 'string' ||
-        !prToolNames.some((name) => toolName.includes(name))
-      ) {
-        continue;
-      }
-      const args = (tr as Record<string, unknown>).args as
-        | Record<string, unknown>
-        | undefined;
-      const prId = args?.pull_request_id;
-      if (typeof prId === 'number' && prId > 0) {
-        return String(prId);
-      }
-      if (typeof prId === 'string' && /^\d+$/.test(prId)) {
-        return prId;
-      }
-    }
-
-    return undefined;
-  }
-
-  private isSuccessfulAddCommentToolResult(
-    toolResult: Record<string, unknown>
-  ): boolean {
-    const outcome = this.readToolSuccess(toolResult);
-    return outcome === true;
-  }
-
-  private readToolSuccess(value: unknown): boolean | undefined {
-    if (!value || typeof value !== 'object') {
-      return undefined;
-    }
-
-    const record = value as Record<string, unknown>;
-
-    if (typeof record.success === 'boolean') {
-      return record.success;
-    }
-    if (typeof record.isError === 'boolean') {
-      return !record.isError;
-    }
-    if (typeof record.status === 'string') {
-      const status = record.status.toLowerCase();
-      if (status === 'success' || status === 'ok' || status === 'completed') {
-        return true;
-      }
-      if (status === 'error' || status === 'failed') {
-        return false;
-      }
-    }
-    if (record.error != null) {
-      return false;
-    }
-
-    if ('result' in record) {
-      const nested = this.readToolSuccess(record.result);
-      if (nested !== undefined) {
-        return nested;
-      }
-    }
-
-    if (
-      typeof record.commentId === 'number' ||
-      typeof record.commentId === 'string' ||
-      typeof record.id === 'number' ||
-      typeof record.id === 'string'
-    ) {
-      return true;
-    }
-
-    // Check nested comment object (MCP add_comment returns { comment: { id } })
-    if (record.comment && typeof record.comment === 'object') {
-      const comment = record.comment as Record<string, unknown>;
-      if (typeof comment.id === 'number' || typeof comment.id === 'string') {
-        return true;
-      }
-    }
-
-    // Handle MCP CallToolResult format: { content: [{ type: 'text', text: '<JSON>' }] }
-    if (Array.isArray(record.content)) {
-      for (const entry of record.content) {
-        if (
-          entry &&
-          typeof entry === 'object' &&
-          (entry as Record<string, unknown>).type === 'text' &&
-          typeof (entry as Record<string, unknown>).text === 'string'
-        ) {
-          try {
-            const parsed = JSON.parse(
-              (entry as Record<string, unknown>).text as string
-            );
-            const nested = this.readToolSuccess(parsed);
-            if (nested !== undefined) {
-              return nested;
-            }
-          } catch {
-            // Not valid JSON, skip
-          }
-        }
-      }
-    }
-
-    return undefined;
+    return {
+      attempted: usedAddComment,
+      verifiedPosted: usedAddComment,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -645,8 +456,7 @@ export class LumosOrchestrator {
     commentPosted: boolean,
     responseText: string,
     toolsUsed: string[],
-    finishReason: string | undefined,
-    commentAttempted = false
+    finishReason: string | undefined
   ): boolean {
     // If a comment was posted, the workflow completed
     if (commentPosted) return false;
@@ -671,19 +481,12 @@ export class LumosOrchestrator {
     }
 
     // If the response contains a full Lumos comment but add_comment wasn't
-    // verified, the agent composed the analysis as text output instead of
-    // posting it via the tool.
+    // called, the agent composed the analysis as text output instead of
+    // posting it via the tool. The fallback posting path will handle this.
     if (lower.includes('## lumos')) {
       logger.warn(
-        'Agent composed the Lumos comment in its response text but no ' +
-          'verified comment post was detected.'
-      );
-      return true;
-    }
-
-    if (commentAttempted) {
-      logger.warn(
-        'The agent attempted add_comment but a successful post could not be verified.'
+        'Agent composed the Lumos comment in its response text but did ' +
+          'not call add_comment. Fallback posting will be attempted.'
       );
       return true;
     }
@@ -894,6 +697,115 @@ export class LumosOrchestrator {
   }
 
   // -------------------------------------------------------------------------
+  // Delete previous Lumos comments
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fetch all comments on the PR via Bitbucket REST API, find any that start
+   * with "## Lumos" (case-insensitive), and delete them. This ensures only
+   * the latest analysis is visible and prevents comment accumulation across
+   * CI runs and retry attempts.
+   *
+   * This is done at the orchestrator level (not by the AI) because the AI
+   * does not reliably execute the DEDUPLICATE step from the system prompt.
+   */
+  private async deletePreviousLumosComments(
+    workspace: string,
+    repository: string,
+    pullRequestId: string
+  ): Promise<number> {
+    const { headers, url } = this.getBitbucketCommentRequestDetails(
+      workspace,
+      repository,
+      pullRequestId
+    );
+
+    if (!headers || !url) {
+      return 0;
+    }
+
+    try {
+      const response = await fetch(url, { method: 'GET', headers });
+
+      if (!response.ok) {
+        logger.warn(
+          `Failed to fetch PR comments for cleanup: ${response.status} ${response.statusText}`
+        );
+        return 0;
+      }
+
+      const payload = (await response.json().catch(() => null)) as Record<
+        string,
+        unknown
+      > | null;
+
+      if (!payload) {
+        return 0;
+      }
+
+      // Extract comment entries with their IDs and text
+      const values = Array.isArray(payload.values)
+        ? payload.values
+        : Array.isArray(payload.comments)
+          ? payload.comments
+          : [];
+
+      const lumosComments: { id: number; version: number }[] = [];
+      for (const entry of values) {
+        if (!entry || typeof entry !== 'object') continue;
+        const record = entry as Record<string, unknown>;
+        const text = this.extractBitbucketCommentText(record);
+        if (text && text.trimStart().toLowerCase().startsWith('## lumos')) {
+          const id = record.id;
+          const version =
+            typeof record.version === 'number' ? record.version : 0;
+          if (typeof id === 'number') {
+            lumosComments.push({ id, version });
+          }
+        }
+      }
+
+      if (lumosComments.length === 0) {
+        return 0;
+      }
+
+      logger.info(
+        `Found ${lumosComments.length} previous Lumos comment(s) to delete: ` +
+          `${lumosComments.map((c) => c.id).join(', ')}`
+      );
+
+      let deleted = 0;
+      for (const comment of lumosComments) {
+        try {
+          const deleteUrl = `${url}/${comment.id}?version=${comment.version}`;
+          const deleteResponse = await fetch(deleteUrl, {
+            method: 'DELETE',
+            headers,
+          });
+
+          if (deleteResponse.ok || deleteResponse.status === 204) {
+            deleted++;
+            logger.info(`Deleted Lumos comment ${comment.id}.`);
+          } else {
+            const body = await deleteResponse.text().catch(() => '(no body)');
+            logger.warn(
+              `Failed to delete comment ${comment.id}: ` +
+                `${deleteResponse.status} ${deleteResponse.statusText} — ${body}`
+            );
+          }
+        } catch (err) {
+          logger.warn(`Error deleting comment ${comment.id}: ${err}`);
+        }
+      }
+
+      return deleted;
+    } catch (err) {
+      logger.warn(`Error during Lumos comment cleanup: ${err}`);
+      return 0;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Fallback: post comment via Bitbucket REST API directly
   // -------------------------------------------------------------------------
 
@@ -955,71 +867,6 @@ export class LumosOrchestrator {
       logger.warn(`Fallback comment POST threw: ${err}`);
       return false;
     }
-  }
-
-  private async verifyCommentPosted(
-    workspace: string,
-    repository: string,
-    pullRequestId: string,
-    commentText: string
-  ): Promise<boolean> {
-    const { headers, url } = this.getBitbucketCommentRequestDetails(
-      workspace,
-      repository,
-      pullRequestId
-    );
-
-    if (!headers || !url) {
-      return false;
-    }
-
-    try {
-      logger.info(
-        'Verifying Lumos comment persistence via Bitbucket REST API.'
-      );
-      const response = await fetch(url, {
-        method: 'GET',
-        headers,
-      });
-
-      if (!response.ok) {
-        const body = await response.text().catch(() => '(no body)');
-        logger.warn(
-          `Comment verification GET failed: ${response.status} ${response.statusText} — ${body}`
-        );
-        return false;
-      }
-
-      const payload = (await response.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
-
-      if (!payload) {
-        return false;
-      }
-
-      const comments = this.extractBitbucketCommentTexts(payload);
-      const expected = commentText.trim();
-      return comments.some((text) => text.trim() === expected);
-    } catch (err) {
-      logger.warn(`Comment verification GET threw: ${err}`);
-      return false;
-    }
-  }
-
-  private extractBitbucketCommentTexts(
-    payload: Record<string, unknown>
-  ): string[] {
-    const values = Array.isArray(payload.values)
-      ? payload.values
-      : Array.isArray(payload.comments)
-        ? payload.comments
-        : [];
-
-    return values
-      .map((value) => this.extractBitbucketCommentText(value))
-      .filter((text): text is string => typeof text === 'string');
   }
 
   private extractBitbucketCommentText(value: unknown): string | undefined {

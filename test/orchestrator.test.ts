@@ -155,44 +155,29 @@ afterEach(() => {
 });
 
 describe('LumosOrchestrator reliability helpers', () => {
-  it('verifies add_comment only when tool results indicate success', () => {
+  it('detects add_comment in toolsUsed', () => {
     const orchestrator = new LumosOrchestrator() as unknown as {
-      extractCommentInfo: (
-        toolResults: unknown[] | undefined,
-        toolsUsed: string[]
-      ) => {
+      extractCommentInfo: (toolsUsed: string[]) => {
         attempted: boolean;
         verifiedPosted: boolean;
-        postedCommentText?: string;
       };
     };
 
-    const successfulState = orchestrator.extractCommentInfo(
-      [
-        {
-          toolName: 'bitbucket.add_comment',
-          args: { comment_text: LUMOS_COMMENT },
-          result: { success: true },
-        },
-      ],
-      []
-    );
-    const failedState = orchestrator.extractCommentInfo(
-      [
-        {
-          toolName: 'bitbucket.add_comment',
-          args: { comment_text: LUMOS_COMMENT },
-          result: { success: false, error: 'boom' },
-        },
-      ],
-      []
-    );
+    const withAddComment = orchestrator.extractCommentInfo([
+      'bitbucket.get_pull_request',
+      'bitbucket.add_comment',
+    ]);
+    const withoutAddComment = orchestrator.extractCommentInfo([
+      'bitbucket.get_pull_request',
+    ]);
+    const empty = orchestrator.extractCommentInfo([]);
 
-    expect(successfulState.attempted).toBe(true);
-    expect(successfulState.verifiedPosted).toBe(true);
-    expect(successfulState.postedCommentText).toBe(LUMOS_COMMENT);
-    expect(failedState.attempted).toBe(true);
-    expect(failedState.verifiedPosted).toBe(false);
+    expect(withAddComment.attempted).toBe(true);
+    expect(withAddComment.verifiedPosted).toBe(true);
+    expect(withoutAddComment.attempted).toBe(false);
+    expect(withoutAddComment.verifiedPosted).toBe(false);
+    expect(empty.attempted).toBe(false);
+    expect(empty.verifiedPosted).toBe(false);
   });
 
   it('treats long non-posted runs as incomplete', () => {
@@ -201,13 +186,12 @@ describe('LumosOrchestrator reliability helpers', () => {
         commentPosted: boolean,
         responseText: string,
         toolsUsed: string[],
-        finishReason: string | undefined,
-        commentAttempted?: boolean
+        finishReason: string | undefined
       ) => boolean;
     };
 
     expect(
-      orchestrator.isRunIncomplete(false, 'x'.repeat(4000), [], 'stop', false)
+      orchestrator.isRunIncomplete(false, 'x'.repeat(4000), [], 'stop')
     ).toBe(true);
   });
 
@@ -217,8 +201,7 @@ describe('LumosOrchestrator reliability helpers', () => {
         commentPosted: boolean,
         responseText: string,
         toolsUsed: string[],
-        finishReason: string | undefined,
-        commentAttempted?: boolean
+        finishReason: string | undefined
       ) => boolean;
     };
 
@@ -227,8 +210,7 @@ describe('LumosOrchestrator reliability helpers', () => {
         false,
         'All tests passed. No analysis needed.',
         [],
-        'stop',
-        false
+        'stop'
       )
     ).toBe(false);
   });
@@ -239,13 +221,12 @@ describe('LumosOrchestrator reliability helpers', () => {
         commentPosted: boolean,
         responseText: string,
         toolsUsed: string[],
-        finishReason: string | undefined,
-        commentAttempted?: boolean
+        finishReason: string | undefined
       ) => boolean;
     };
 
     expect(
-      orchestrator.isRunIncomplete(false, 'partial output', [], 'length', false)
+      orchestrator.isRunIncomplete(false, 'partial output', [], 'length')
     ).toBe(true);
   });
 });
