@@ -6,50 +6,53 @@ content below this comment block. Keep under 60 lines. -->
 
 ## Current Focus
 
-Branch-based PR discovery feature (`find-by-branch`) — matching Yama's pattern.
-When Jenkins' `CHANGE_ID` is unavailable (PR ID is `0` or empty), Lumos now
-instructs the AI to discover the PR from the branch name using
-`list_pull_requests` MCP tool.
+Fix duplicate comment posting when using `find-by-branch` PR discovery.
+Branch: `fix/find-by-branch-verification`. Pushed to fork, pending PR + merge.
 
-### What Changed
+### What Changed (this branch)
 
-- `orchestrator.ts`: PR ID `0`/empty + branch available -> sets
-  `pullRequestId = 'find-by-branch'`, passes `branch` to user message.
-  Fallback REST posting guarded to skip when PR ID is non-numeric.
-- `system-prompt.ts`: Added `list_pull_requests` to AVAILABLE TOOLS. Workflow
-  step 1 now branches: numeric ID -> `get_pull_request` directly,
-  `find-by-branch` -> `list_pull_requests` first to discover PR. User message
-  includes `Branch:` metadata when available.
-- `.prettierignore`: Added `.claude` directory.
+- `orchestrator.ts`: Three fixes for the duplicate comment bug:
+  1. `readToolSuccess()` now handles MCP `CallToolResult` format -- parses
+     `content[].text` JSON string, checks nested `comment.id` as success indicator.
+  2. Added `extractDiscoveredPrId()` -- scans tool call args (`add_comment`,
+     `get_pull_request`, `get_pull_request_diff`) for the numeric `pull_request_id`
+     the AI discovered. Updates local `pullRequestId` from `"find-by-branch"` to
+     the real numeric ID.
+  3. Fallback posting guard now reads local `pullRequestId` (which may have been
+     updated with discovered ID) instead of `options.pullRequestId` (original
+     undefined/`'0'`). Also explicitly excludes `"find-by-branch"` string.
 
-### Context: Why This Was Needed
+### What Changed (Lighthouse side, uncommitted by user)
 
-Jenkins pipeline run on PR #4638 passed `--pr-id 0` (because `CHANGE_ID` was
-unavailable). Lumos called `get_pull_request` with ID 0, got no useful PR
-context, and the AI produced a shallow 245-token response with 0 comments.
+- `lumos.config.yaml`: `ai.maxTokens` changed from `8192` to `30000` for
+  headroom on larger failure sets.
 
 ## Recent Decisions
 
-- **Match Yama's `find-by-branch` pattern**: AI-driven PR discovery via prompt
-  instruction, not programmatic Bitbucket API call. Consistent with Yama's
-  `PromptBuilder.js` approach.
-- **No Jenkinsfile changes needed**: `--pr-id 0` from Jenkins is handled by
-  Lumos internally. The branch name (`--branch`) is already passed.
-- **Fallback posting disabled for `find-by-branch`**: The orchestrator's REST
-  API fallback can't work without a numeric PR ID. If the AI discovers the PR
-  and posts via MCP, that's fine. If not, fallback is skipped.
+- **maxTokens 8192 was not the root cause of shallow analysis**: Jenkins build
+  26 produced full detailed comments with 8192. Changed to 30000 anyway as
+  safety margin for complex failure sets.
+- **Duplicate comments are the real problem**: Build 26 posted two nearly
+  identical Lumos comments (IDs 1162645, 1162647) 2 minutes apart, costing
+  ~$1.00 instead of ~$0.50.
+- **Fix approach**: Extract discovered PR ID from tool call args rather than
+  adding programmatic Bitbucket API calls. The AI already discovers and uses
+  the real PR ID -- we just need to read it back from `toolResults`.
 
-## Completed Recently
+## npm Version History
 
-- OIDC fix merged to `release`, `@juspay/lumos@1.0.1` published to npm
-- Lighthouse updated to `^1.0.1`, lockfile regenerated
-- First Jenkins pipeline run: MCP servers registered, report parsed, AI invoked
-  (but PR ID `0` caused shallow analysis — fixed by this PR)
+| Version | Contents                        | Published via |
+| ------- | ------------------------------- | ------------- |
+| 1.0.0   | Initial release                 | Manual        |
+| 1.0.1   | MCP binary fix                  | OIDC auto     |
+| 1.1.0   | find-by-branch PR discovery     | OIDC auto     |
+| 1.1.1   | Prompt size diagnostic logging  | OIDC auto     |
+| 1.1.2   | Duplicate comment fix (pending) | --            |
 
 ## Next Steps
 
-1. Merge this PR (`feat/find-pr-by-branch`) to `release`
-2. semantic-release publishes new version (1.1.0)
-3. Update Lighthouse lockfile to pick up new version
-4. Re-run Jenkins build on PR #4638 — AI should discover PR and do full analysis
-5. Update PR #4638 description on Bitbucket
+1. Create GitHub PR for `fix/find-by-branch-verification` -> `release`
+2. Merge -> semantic-release publishes `1.1.2`
+3. Update Lighthouse `package.json` to `"@juspay/lumos": "^1.1.2"`, regen lockfile
+4. User commits maxTokens change + dep bump on Lighthouse PR #4638
+5. Re-run Jenkins build to validate: single comment, no duplicates

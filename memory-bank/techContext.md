@@ -247,6 +247,16 @@ npx tsx scripts/test-local.ts --live --pr 4638
 # Verify package contents before publish
 npm pack --dry-run                        # lists files + size (should be ~34.5 kB, 40 files)
 
-# In Jenkins (via Lighthouse) -- not yet integrated
-node scripts/run-lumos.js --type=mock --pr-id=${prId} --workspace=BZ --repository=lighthouse
+# In Jenkins (via Lighthouse Jenkinsfile mock tests catch block)
+pnpm run lumos:analyze --type mock --pr-id ${prId} --workspace BZ --repository lighthouse --branch ${env.BRANCH_NAME}
 ```
+
+## npm Version History
+
+| Version | Date    | Key Changes                                                | Commit prefix |
+| ------- | ------- | ---------------------------------------------------------- | ------------- |
+| 1.0.0   | 2026-03 | Initial release (manual publish by Sachin)                 | --            |
+| 1.0.1   | 2026-04 | MCP binary fix (local path), OIDC pipeline fix (npm@11)    | fix           |
+| 1.1.0   | 2026-04 | find-by-branch PR discovery                                | feat          |
+| 1.1.1   | 2026-04 | Prompt size diagnostic logging                             | feat          |
+| 1.1.2   | pending | Duplicate comment fix (MCP verification, PR ID extraction) | fix           |

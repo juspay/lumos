@@ -64,10 +64,10 @@ in the Section Index. -->
 
 ## npm Publishing Configuration
 
-**Status**: `@juspay/lumos@1.0.0` published to npm (by Sachin, manually).
-OIDC automated publishing failed with `ENEEDAUTH`. Root cause identified:
-missing npm@11 upgrade step. Fix applied to `release.yml` (uncommitted, 3
-changes). Once pushed and merged, semantic-release will publish 1.1.0.
+**Status**: Complete. `@juspay/lumos` published to npm via automated OIDC
+pipeline. Versions: 1.0.0 (manual), 1.0.1 (MCP binary fix), 1.1.0
+(find-by-branch), 1.1.1 (prompt diagnostics). All automated publishes via
+semantic-release on push to `release` branch.
 
 **Original problem**: Lighthouse PR #4638 had `"@juspay/lumos": "github:juspay/lumos"`
 in `package.json`. GitHub installs don't build `dist/` (the `prepare` script was
@@ -109,7 +109,7 @@ path (`join(process.cwd(), 'node_modules/.bin/...')`). Moved MCP server packages
 from `devDependencies` to `dependencies`. Locally verified with
 `pnpm test:local -- --pr 4638`.
 
-### Phase 6 -- ENEEDAUTH Root Cause + Fix (uncommitted)
+### Phase 6 -- ENEEDAUTH Root Cause + Fix (merged, v1.0.1 published)
 
 Release workflow ran after Phase 5 merge but `npm publish` failed with
 `ENEEDAUTH`. Deep investigation of `@semantic-release/npm@13.1.5` source:
@@ -123,11 +123,41 @@ Release workflow ran after Phase 5 merge but `npm publish` failed with
 Sachin confirmed trusted publisher was already configured on npmjs.com.
 The actual missing piece was the npm@11 upgrade step (neurolink has it).
 
-**3 fixes applied to `release.yml`** (uncommitted):
+**3 fixes applied to `release.yml`** (merged):
 
 1. Added `npx -y npm@11 install -g npm@11` (pinned, not `npm@latest`)
 2. Changed `npx semantic-release@25` -> `npx semantic-release` (use local version)
 3. Added job-level `permissions` block (matching neurolink's belt-and-suspenders)
+
+After merge, `@juspay/lumos@1.0.1` published automatically via OIDC pipeline.
+
+### Phase 7 -- find-by-branch PR Discovery (merged, v1.1.0 published)
+
+When Jenkins' `CHANGE_ID` is unavailable (PR ID is `0` or empty), Lumos
+instructs the AI to discover the PR from the branch name using
+`list_pull_requests` MCP tool. Matches Yama's `PromptBuilder.js` pattern.
+
+Changes: `orchestrator.ts` (PR ID resolution), `system-prompt.ts` (workflow
+branching + `list_pull_requests` tool docs), `.prettierignore`.
+
+### Phase 8 -- Prompt Size Diagnostics (merged, v1.1.1 published)
+
+Added diagnostic logging before the `generate()` call: system prompt chars,
+user message chars, combined chars, estimated tokens (chars/4 heuristic),
+failure count. Helps pinpoint token budget issues from Jenkins logs.
+
+### Phase 9 -- Duplicate Comment Fix (in PR, pending merge)
+
+Branch: `fix/find-by-branch-verification`. Three root causes for duplicate
+comments when using find-by-branch:
+
+1. `readToolSuccess()` couldn't parse MCP `CallToolResult` format
+   (`{ content: [{ type: 'text', text: '<JSON>' }] }`). Added JSON parsing
+   of `content[].text` and `comment.id` nested object check.
+2. After AI discovers real PR ID via `list_pull_requests`, orchestrator never
+   extracted it back. Added `extractDiscoveredPrId()` to scan tool call args.
+3. Fallback posting guard read `options.pullRequestId` (original undefined)
+   instead of local `pullRequestId` (updated with discovered ID).
 
 ## Test Validation Results
 
@@ -154,6 +184,25 @@ The actual missing piece was the npm@11 upgrade step (neurolink has it).
 - **Final run (after all V1.1 fixes)**: 17 failures. 10 PR-caused + 5 flaky +
   3 infra. 250k tokens, $0.83, 210.8s. Comment posted first attempt, old Lumos
   comments deleted via dedup.
+
+### PR 4638 -- Jenkins Pipeline Runs (real CI, Vertex AI + Claude Sonnet 4.5)
+
+- **Build 21** (2026-04-09): 212 tests, 156 passed, 35 failed, 3 flaky.
+- **Build 23** (2026-04-09): 212 tests, 162 passed, 33 failed, 0 flaky.
+- **Build 26** (2026-04-10): 252 tests, 197 passed, 38 failed, 0 flaky. Lumos
+  posted TWO full analysis comments (duplicate due to verification bug). Each
+  comment covered all 38 failures with correct root cause analysis, grouped by
+  the 4 intentional test ID renames, with before/after code snippets and
+  specific file+line fix suggestions. AI used `list_pull_requests` ->
+  `get_pull_request` -> file reading -> `add_comment`. 164k input tokens,
+  ~$0.50 per attempt. The duplicate was caused by the `find-by-branch`
+  verification bug (fixed in Phase 9).
+
+**Key finding from Build 26**: The `maxTokens: 8192` in Lighthouse config
+was sufficient for this run (AI produced ~359 output tokens of tool calls +
+a full comment via MCP). Earlier concern about shallow analysis was from a
+different build with different conditions. Changed to `maxTokens: 30000`
+anyway for safety margin on larger failure sets.
 
 ### PR 4598 (8 detailed runs testing V1.1 enhancements)
 
@@ -203,30 +252,31 @@ Key findings across all runs:
 
 ## Remaining Work Table
 
-| Task                               | Repo       | Status      | Blocked?             |
-| ---------------------------------- | ---------- | ----------- | -------------------- |
-| npm publish config                 | lumos      | Done        | --                   |
-| semantic-release version upgrade   | lumos      | Done        | --                   |
-| npm self-upgrade crash fix         | lumos      | Done        | --                   |
-| Manual first publish (v1.0.0)      | lumos      | Done        | --                   |
-| MCP binary fix (local binary path) | lumos      | Done        | --                   |
-| OIDC fix (npm@11 + release.yml)    | lumos      | Done        | --                   |
-| Automated npm publish (v1.0.1)     | lumos      | Done        | --                   |
-| find-by-branch PR discovery        | lumos      | In PR       | --                   |
-| Lighthouse PR dep `^1.0.1`         | lighthouse | Done        | --                   |
-| Lighthouse lockfile regen          | lighthouse | Done        | --                   |
-| Lighthouse lockfile regen (1.1.0)  | lighthouse | Pending     | find-by-branch merge |
-| Lighthouse PR #4638 description    | lighthouse | Pending     | Lockfile regen       |
-| `scripts/run-lumos.js`             | lighthouse | Done        | --                   |
-| `lumos.config.yaml` in Lighthouse  | lighthouse | Done        | --                   |
-| `package.json` dep addition        | lighthouse | Done        | --                   |
-| Jenkinsfile mock tests catch block | lighthouse | Done        | --                   |
-| Jenkinsfile beta catch block       | lighthouse | Deferred    | Validate mock first  |
-| Jenkinsfile AI sanity catch block  | lighthouse | Deferred    | Validate mock first  |
-| `orchestrator.test.ts` type fixes  | lumos      | Done        | --                   |
-| Fix `hasCritical` false positive   | lumos      | Pending     | No                   |
-| Two-pass analysis                  | lumos      | Not started | No                   |
-| Structured output wiring           | lumos      | Not started | No                   |
+| Task                               | Repo       | Status       | Blocked?            |
+| ---------------------------------- | ---------- | ------------ | ------------------- |
+| npm publish config                 | lumos      | Done         | --                  |
+| semantic-release version upgrade   | lumos      | Done         | --                  |
+| npm self-upgrade crash fix         | lumos      | Done         | --                  |
+| Manual first publish (v1.0.0)      | lumos      | Done         | --                  |
+| MCP binary fix (local binary path) | lumos      | Done (1.0.1) | --                  |
+| OIDC fix (npm@11 + release.yml)    | lumos      | Done (1.0.1) | --                  |
+| Automated npm publish (v1.0.1)     | lumos      | Done         | --                  |
+| find-by-branch PR discovery        | lumos      | Done (1.1.0) | --                  |
+| Prompt size diagnostics            | lumos      | Done (1.1.1) | --                  |
+| find-by-branch verification fix    | lumos      | In PR        | Pending merge       |
+| Lighthouse PR dep `^1.1.1`         | lighthouse | Done         | --                  |
+| Lighthouse lockfile regen          | lighthouse | Done         | --                  |
+| Lighthouse maxTokens 8192->30000   | lighthouse | Done         | User commit pending |
+| `scripts/run-lumos.js`             | lighthouse | Done         | --                  |
+| `lumos.config.yaml` in Lighthouse  | lighthouse | Done         | --                  |
+| `package.json` dep addition        | lighthouse | Done         | --                  |
+| Jenkinsfile mock tests catch block | lighthouse | Done         | --                  |
+| Jenkinsfile beta catch block       | lighthouse | Deferred     | Validate mock first |
+| Jenkinsfile AI sanity catch block  | lighthouse | Deferred     | Validate mock first |
+| `orchestrator.test.ts` type fixes  | lumos      | Done         | --                  |
+| Fix `hasCritical` false positive   | lumos      | Pending      | No                  |
+| Two-pass analysis                  | lumos      | Not started  | No                  |
+| Structured output wiring           | lumos      | Not started  | No                  |
 
 ## Known Issues and Tech Debt
 
@@ -234,6 +284,13 @@ Key findings across all runs:
   falls back to `responseText` scanning which can match "PR-caused" in
   non-critical context. Runs 1, 3, 7 had false positives; runs 2, 4, 8 were
   correct. Not yet fixed.
+- **Duplicate comments on find-by-branch (FIXING)**: When PR ID is discovered
+  via branch, orchestrator couldn't verify the MCP `add_comment` succeeded,
+  causing a retry that posted a second identical comment. Fix in PR on branch
+  `fix/find-by-branch-verification`. Three root causes: MCP response parsing,
+  PR ID extraction, fallback guard variable.
+- **`posting.strategy: 'per-failure'` is dead code**: The config option exists
+  in the Zod schema but is never implemented. Only `'single'` works.
 - **Fixtures not committed**: `fixtures/result-{4598,4610,4571,4638}.json` are
   gitignored (large, contain real test data). Local-only for development.
 - **`as never` cast**: `addExternalMCPServer` options use `as never` to bypass

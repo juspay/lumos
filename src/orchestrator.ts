@@ -287,6 +287,16 @@ export class LumosOrchestrator {
       // -- Extract posted comment from tool results --------------------------
       postState = this.extractCommentInfo(toolResults, toolsUsed);
 
+      // If we started with "find-by-branch", try to recover the real numeric
+      // PR ID from the tool call args so verification and fallback work.
+      if (pullRequestId === 'find-by-branch') {
+        const discoveredId = this.extractDiscoveredPrId(toolResults);
+        if (discoveredId) {
+          logger.info(`Discovered real PR ID from tool calls: ${discoveredId}`);
+          pullRequestId = discoveredId;
+        }
+      }
+
       const commentCandidate =
         postState.attemptedCommentText ??
         this.extractLumosComment(responseText) ??
@@ -358,8 +368,10 @@ export class LumosOrchestrator {
     // -- Fallback: post comment directly if AI composed but didn't post ------
     let fallbackPosted = false;
     const numericPrId =
-      options.pullRequestId && options.pullRequestId !== '0'
-        ? options.pullRequestId
+      pullRequestId &&
+      pullRequestId !== '0' &&
+      pullRequestId !== 'find-by-branch'
+        ? pullRequestId
         : undefined;
     if (!postState.verifiedPosted && !options.dryRun && numericPrId) {
       const extractedComment =
@@ -483,6 +495,51 @@ export class LumosOrchestrator {
     return toolState;
   }
 
+  /**
+   * Scan tool results for a numeric pull_request_id in the args of any
+   * Bitbucket tool call (add_comment, get_pull_request, etc.). Used to
+   * recover the real PR ID when the orchestrator started with
+   * "find-by-branch".
+   */
+  private extractDiscoveredPrId(
+    toolResults: unknown[] | undefined
+  ): string | undefined {
+    if (!toolResults || !Array.isArray(toolResults)) {
+      return undefined;
+    }
+
+    const prToolNames = [
+      'add_comment',
+      'get_pull_request',
+      'get_pull_request_diff',
+    ];
+
+    for (const tr of toolResults) {
+      if (!tr || typeof tr !== 'object' || !('toolName' in tr)) {
+        continue;
+      }
+      const toolName = (tr as Record<string, unknown>).toolName;
+      if (
+        typeof toolName !== 'string' ||
+        !prToolNames.some((name) => toolName.includes(name))
+      ) {
+        continue;
+      }
+      const args = (tr as Record<string, unknown>).args as
+        | Record<string, unknown>
+        | undefined;
+      const prId = args?.pull_request_id;
+      if (typeof prId === 'number' && prId > 0) {
+        return String(prId);
+      }
+      if (typeof prId === 'string' && /^\d+$/.test(prId)) {
+        return prId;
+      }
+    }
+
+    return undefined;
+  }
+
   private isSuccessfulAddCommentToolResult(
     toolResult: Record<string, unknown>
   ): boolean {
@@ -530,6 +587,38 @@ export class LumosOrchestrator {
       typeof record.id === 'string'
     ) {
       return true;
+    }
+
+    // Check nested comment object (MCP add_comment returns { comment: { id } })
+    if (record.comment && typeof record.comment === 'object') {
+      const comment = record.comment as Record<string, unknown>;
+      if (typeof comment.id === 'number' || typeof comment.id === 'string') {
+        return true;
+      }
+    }
+
+    // Handle MCP CallToolResult format: { content: [{ type: 'text', text: '<JSON>' }] }
+    if (Array.isArray(record.content)) {
+      for (const entry of record.content) {
+        if (
+          entry &&
+          typeof entry === 'object' &&
+          (entry as Record<string, unknown>).type === 'text' &&
+          typeof (entry as Record<string, unknown>).text === 'string'
+        ) {
+          try {
+            const parsed = JSON.parse(
+              (entry as Record<string, unknown>).text as string
+            );
+            const nested = this.readToolSuccess(parsed);
+            if (nested !== undefined) {
+              return nested;
+            }
+          } catch {
+            // Not valid JSON, skip
+          }
+        }
+      }
     }
 
     return undefined;

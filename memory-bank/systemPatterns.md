@@ -135,6 +135,63 @@ each failure's spec file, title, error message, error location, truncated
 stack trace (30 lines max, 2000 chars max), and retry info formatted as
 "X/Y failed" (e.g., "2/3 failed").
 
+## MCP Tool Result Verification
+
+After the AI calls MCP tools, the orchestrator needs to determine if
+`add_comment` succeeded. The verification chain in `readToolSuccess()`:
+
+```
+AI SDK toolResult object
+  { type: 'tool-result', toolCallId, toolName, args, result }
+                                                       |
+                                                       v
+  MCP CallToolResult (the `result` field)
+  { content: [{ type: 'text', text: '<JSON string>' }] }
+                                            |
+                                            v
+  Parsed JSON from text field
+  { message: 'Comment added successfully', comment: { id: 12345, ... } }
+                                                            |
+                                                            v
+  readToolSuccess() checks: comment.id is numeric -> return true
+```
+
+Priority of checks in `readToolSuccess()`:
+
+1. `record.success` (boolean)
+2. `record.isError` (boolean, inverted)
+3. `record.status` (string: 'success'/'ok'/'completed' vs 'error'/'failed')
+4. `record.error` (non-null -> failure)
+5. `record.result` (recurse)
+6. `record.commentId` or `record.id` (presence -> success)
+7. `record.comment.id` (nested object -> success)
+8. `record.content[]` (MCP format: parse JSON from text entries, recurse)
+
+If `readToolSuccess()` returns `undefined` (indeterminate), the orchestrator
+falls back to `verifyCommentPosted()` which calls the Bitbucket REST API to
+check if the comment text appears on the PR.
+
+## PR ID Discovery for find-by-branch
+
+When `pullRequestId` starts as `"find-by-branch"`, the AI discovers the real
+numeric PR ID via `list_pull_requests` and uses it in subsequent tool calls.
+The orchestrator extracts this discovered ID from `toolResults`:
+
+```typescript
+// extractDiscoveredPrId() scans tool call args for numeric pull_request_id
+const prToolNames = [
+  'add_comment',
+  'get_pull_request',
+  'get_pull_request_diff',
+];
+// Iterates toolResults, finds first matching tool with numeric args.pull_request_id
+// Returns as string (e.g., '4638') or undefined if not found
+```
+
+This extracted ID is used to update the local `pullRequestId` variable,
+enabling both `verifyCommentPosted()` (REST API check) and `postCommentFallback()`
+(REST API fallback) to work with the correct numeric PR ID.
+
 ## Key Interfaces
 
 ```typescript
@@ -207,22 +264,24 @@ All errors extend `LumosError` and carry a machine-readable `code` plus a
 
 ## Design Decisions
 
-| Decision                                              | Rationale                                                                                                                                                                                                                            |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Autonomous agent (not structured output) for V1       | Agent can fetch files, read code, and reason about context. Structured output would need all context upfront.                                                                                                                        |
-| Single comment (not per-failure)                      | Developers prefer one consolidated comment over N separate ones. Reduces noise.                                                                                                                                                      |
-| `maxFailures` removed (was capped at 10)              | Real PR 4638 had 17 failures; capping at 10 missed 7. Token cost is acceptable (~230k for 17).                                                                                                                                       |
-| Comment dedup via MCP `delete_comment`                | The Bitbucket MCP server DOES have `delete_comment`. AI deletes old Lumos comments as part of its workflow step 2.                                                                                                                   |
-| Memory bank loaded from consumer's project root       | Lighthouse has failure-pattern files that give the AI project-specific context.                                                                                                                                                      |
-| LiteLLM for local, Vertex for prod                    | LiteLLM proxy at `grid.ai.juspay.net` is fast and free for dev. Vertex is the stable production path (same as Yama).                                                                                                                 |
-| Retry loop (MAX_ATTEMPTS=2)                           | AI sometimes stops prematurely without posting. A second attempt usually succeeds.                                                                                                                                                   |
-| Fallback REST posting                                 | If AI fails to call `add_comment` after all retries, orchestrator posts directly via Bitbucket REST API to guarantee the comment reaches the PR.                                                                                     |
-| `hasCritical` detection from posted comment text      | Scan the posted comment for "PR-caused" verdicts. Non-deterministic edge case exists (false positive from response text scanning).                                                                                                   |
-| `totalAttempts` + `failedAttempts` (not `retryCount`) | AI needs to know "2 of 3 attempts failed" not just "3 retries". The old `retryCount` was ambiguous and caused misclassification.                                                                                                     |
-| Typed error hierarchy                                 | Enables callers to `catch` specific error types (e.g., `McpError` vs `ConfigError`) for different handling strategies.                                                                                                               |
-| 3-layer config with Zod                               | YAML for project defaults, env vars for per-run overrides (Jenkins stages), Zod catches invalid config early.                                                                                                                        |
-| Langfuse observability (optional)                     | Traces AI calls for cost monitoring and debugging. Disabled by default; enabled via config or env vars.                                                                                                                              |
-| Branch-based PR discovery (`find-by-branch`)          | Matches Yama's pattern. Jenkins `CHANGE_ID` is unavailable in some contexts (manual trigger, non-multibranch). AI discovers PR via `list_pull_requests` using branch name. Fallback REST posting disabled when PR ID is non-numeric. |
+| Decision                                              | Rationale                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Autonomous agent (not structured output) for V1       | Agent can fetch files, read code, and reason about context. Structured output would need all context upfront.                                                                                                                                                                                                                                      |
+| Single comment (not per-failure)                      | Developers prefer one consolidated comment over N separate ones. Reduces noise.                                                                                                                                                                                                                                                                    |
+| `maxFailures` removed (was capped at 10)              | Real PR 4638 had 17 failures; capping at 10 missed 7. Token cost is acceptable (~230k for 17).                                                                                                                                                                                                                                                     |
+| Comment dedup via MCP `delete_comment`                | The Bitbucket MCP server DOES have `delete_comment`. AI deletes old Lumos comments as part of its workflow step 2.                                                                                                                                                                                                                                 |
+| Memory bank loaded from consumer's project root       | Lighthouse has failure-pattern files that give the AI project-specific context.                                                                                                                                                                                                                                                                    |
+| LiteLLM for local, Vertex for prod                    | LiteLLM proxy at `grid.ai.juspay.net` is fast and free for dev. Vertex is the stable production path (same as Yama).                                                                                                                                                                                                                               |
+| Retry loop (MAX_ATTEMPTS=2)                           | AI sometimes stops prematurely without posting. A second attempt usually succeeds.                                                                                                                                                                                                                                                                 |
+| Fallback REST posting                                 | If AI fails to call `add_comment` after all retries, orchestrator posts directly via Bitbucket REST API to guarantee the comment reaches the PR.                                                                                                                                                                                                   |
+| `hasCritical` detection from posted comment text      | Scan the posted comment for "PR-caused" verdicts. Non-deterministic edge case exists (false positive from response text scanning).                                                                                                                                                                                                                 |
+| `totalAttempts` + `failedAttempts` (not `retryCount`) | AI needs to know "2 of 3 attempts failed" not just "3 retries". The old `retryCount` was ambiguous and caused misclassification.                                                                                                                                                                                                                   |
+| Typed error hierarchy                                 | Enables callers to `catch` specific error types (e.g., `McpError` vs `ConfigError`) for different handling strategies.                                                                                                                                                                                                                             |
+| 3-layer config with Zod                               | YAML for project defaults, env vars for per-run overrides (Jenkins stages), Zod catches invalid config early.                                                                                                                                                                                                                                      |
+| Langfuse observability (optional)                     | Traces AI calls for cost monitoring and debugging. Disabled by default; enabled via config or env vars.                                                                                                                                                                                                                                            |
+| Branch-based PR discovery (`find-by-branch`)          | Matches Yama's pattern. Jenkins `CHANGE_ID` is unavailable in some contexts (manual trigger, non-multibranch). AI discovers PR via `list_pull_requests` using branch name. Fallback REST posting disabled when PR ID is non-numeric.                                                                                                               |
+| Extract discovered PR ID from tool call args          | After AI discovers the real PR via `list_pull_requests` and uses it in `get_pull_request`/`add_comment`, the orchestrator extracts the numeric ID from `toolResults[].args.pull_request_id`. This enables REST API verification and fallback posting to work correctly for find-by-branch scenarios.                                               |
+| MCP tool result verification via `readToolSuccess()`  | MCP servers return `CallToolResult` format: `{ content: [{ type: 'text', text: '<JSON>' }] }`. The `readToolSuccess()` method now parses the embedded JSON and checks for `comment.id` (nested under a `comment` object) as a success indicator. Without this, all MCP tool results appeared as "indeterminate" and triggered unnecessary retries. |
 
 ## Release & Publishing Pattern
 
@@ -293,7 +352,8 @@ the version-bump commit. This matches neurolink's ordering.
 - First version must be published manually (OIDC cannot create new packages)
 
 **Version history**: v1.0.0 published manually by Sachin. Automated OIDC
-publishing will produce v1.1.0+ once the release.yml fixes are merged.
+publishing produces subsequent versions: v1.0.1 (MCP binary fix), v1.1.0
+(find-by-branch), v1.1.1 (prompt diagnostics).
 
 ### Jira Prefix Stripping
 
