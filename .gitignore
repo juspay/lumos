@@ -33,3 +33,4 @@ npm-debug.log*
 
 # Test fixtures (local only, contain real report data)
 fixtures/
+CLAUDE.md

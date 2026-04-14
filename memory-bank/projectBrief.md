@@ -8,7 +8,7 @@ technical details. Changes only when the project's fundamental scope shifts. -->
 
 - **Name**: Lumos
 - **Package**: `@juspay/lumos`
-- **Version**: 1.1.1 (latest published; 1.1.2 pending with verification fix)
+- **Version**: 1.1.3 (latest published)
 - **Repo**: `github.com/juspay/lumos`
 - **Branch**: `release`
 - **Language**: TypeScript (strict, ESM, Node >= 20.12)

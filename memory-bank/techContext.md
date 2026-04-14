@@ -259,4 +259,5 @@ pnpm run lumos:analyze --type mock --pr-id ${prId} --workspace BZ --repository l
 | 1.0.1   | 2026-04 | MCP binary fix (local path), OIDC pipeline fix (npm@11)    | fix           |
 | 1.1.0   | 2026-04 | find-by-branch PR discovery                                | feat          |
 | 1.1.1   | 2026-04 | Prompt size diagnostic logging                             | feat          |
-| 1.1.2   | pending | Duplicate comment fix (MCP verification, PR ID extraction) | fix           |
+| 1.1.2   | 2026-04 | Duplicate comment fix (MCP verification, PR ID extraction) | fix           |
+| 1.1.3   | 2026-04 | Orchestrator cleanup, no-action signal fix                 | fix           |

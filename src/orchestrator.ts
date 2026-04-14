@@ -119,7 +119,79 @@ export class LumosOrchestrator {
 
     // -- Early exit: no failures ---------------------------------------------
     if (failures.length === 0) {
-      logger.info('No failures found. Skipping AI analysis.');
+      logger.info('No failures found.');
+
+      // Resolve PR ID so we can clean up old comments and post safe-to-merge
+      let pullRequestId = options.pullRequestId ?? '';
+      const branch = options.branch ?? '';
+
+      if (!pullRequestId || pullRequestId === '0') {
+        if (branch) {
+          const resolved = await this.resolvePrIdByBranch(
+            options.workspace,
+            options.repository,
+            branch
+          );
+          if (resolved) {
+            pullRequestId = resolved;
+          }
+        }
+      }
+
+      const numericPrId =
+        pullRequestId &&
+        pullRequestId !== '0' &&
+        pullRequestId !== 'find-by-branch'
+          ? pullRequestId
+          : undefined;
+
+      if (numericPrId && !options.dryRun) {
+        // Clean up old Lumos comments (e.g., from a previous run that had failures)
+        const cleanup = await this.deletePreviousLumosComments(
+          options.workspace,
+          options.repository,
+          numericPrId
+        );
+        if (cleanup.deleted > 0) {
+          logger.info(
+            `Cleaned up ${cleanup.deleted} previous Lumos comment(s) before posting safe-to-merge.`
+          );
+        }
+
+        // Post safe-to-merge comment
+        const duration = this.formatDuration(stats.durationMs);
+        const safeComment =
+          `## Lumos -- Test Failure Analysis (${options.type} tests)\n\n` +
+          `**Verdict: SAFE TO MERGE**\n\n` +
+          `${stats.passed} passed | 0 failed | ${stats.flaky} flaky | ${duration}\n\n` +
+          `### Summary\n` +
+          `All tests passed. No failures detected.\n\n` +
+          `### Failures Caused by PR Changes\n\n` +
+          `No test failures were caused by this PR's changes.\n\n` +
+          `### Pre-existing / Flaky Tests\n\n` +
+          `No flaky or pre-existing failures detected.\n\n` +
+          `### Infrastructure Issues\n\n` +
+          `No infrastructure issues detected.\n\n` +
+          `---\n` +
+          `*Analyzed by Lumos v1 | 0 PR files reviewed*`;
+
+        const posted = await this.postCommentFallback(
+          options.workspace,
+          options.repository,
+          numericPrId,
+          safeComment
+        );
+
+        return {
+          failuresAnalyzed: 0,
+          commentsPosted: posted ? 1 : 0,
+          hasCritical: false,
+        };
+      }
+
+      logger.info(
+        'Skipping safe-to-merge comment (no numeric PR ID available).'
+      );
       return {
         failuresAnalyzed: 0,
         commentsPosted: 0,
@@ -133,10 +205,22 @@ export class LumosOrchestrator {
 
     if (!pullRequestId || pullRequestId === '0') {
       if (branch) {
-        pullRequestId = 'find-by-branch';
-        logger.info(
-          `No pullRequestId provided. AI will discover the PR from branch "${branch}".`
+        // Attempt to resolve the branch to a numeric PR ID via Bitbucket API.
+        // This is critical for comment cleanup, fallback posting, and
+        // safe-to-merge flows that all require a numeric PR ID.
+        const resolved = await this.resolvePrIdByBranch(
+          options.workspace,
+          options.repository,
+          branch
         );
+        if (resolved) {
+          pullRequestId = resolved;
+        } else {
+          pullRequestId = 'find-by-branch';
+          logger.info(
+            `Could not resolve PR from branch "${branch}". AI will discover the PR at runtime.`
+          );
+        }
       } else {
         logger.warn(
           'No pullRequestId or branch provided. The AI agent will not be able ' +
@@ -201,6 +285,7 @@ export class LumosOrchestrator {
     let postedCommentText: string | undefined;
     let attempts = 0;
     let incomplete = false;
+    let previousSummary: string | undefined;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       attempts = attempt;
@@ -215,28 +300,44 @@ export class LumosOrchestrator {
           ? pullRequestId
           : undefined;
       if (numericPrIdForCleanup && !options.dryRun) {
-        const deleted = await this.deletePreviousLumosComments(
+        const cleanup = await this.deletePreviousLumosComments(
           options.workspace,
           options.repository,
           numericPrIdForCleanup
         );
-        if (deleted > 0) {
+        if (cleanup.deleted > 0) {
           logger.info(
-            `Cleaned up ${deleted} previous Lumos comment(s) before attempt ${attempt}.`
+            `Cleaned up ${cleanup.deleted} previous Lumos comment(s) before attempt ${attempt}.`
           );
+        }
+        // Capture previous summary only on the first attempt
+        if (attempt === 1 && cleanup.previousSummary) {
+          previousSummary = cleanup.previousSummary;
         }
       }
 
-      const inputText =
-        attempt === 1
-          ? userMessage
-          : userMessage +
+      let inputText: string;
+      if (attempt === 1) {
+        inputText = previousSummary
+          ? userMessage +
             '\n\n' +
-            'IMPORTANT: A previous attempt to analyze these failures stopped ' +
-            'prematurely without posting a PR comment. You MUST complete the ' +
-            'full workflow: fetch the PR, read files, analyze failures, and ' +
-            'POST a comment using add_comment. Do not stop until the comment ' +
-            'is posted.';
+            '## Previous Lumos Analysis (from prior CI run)\n' +
+            'The following is a summary of the most recent Lumos comment on ' +
+            'this PR. Use it as context -- if your new analysis agrees with ' +
+            'prior findings, you can reference them. If new failures appeared ' +
+            'or old ones were fixed, note the changes in your Summary section.\n\n' +
+            previousSummary
+          : userMessage;
+      } else {
+        inputText =
+          userMessage +
+          '\n\n' +
+          'IMPORTANT: A previous attempt to analyze these failures stopped ' +
+          'prematurely without posting a PR comment. You MUST complete the ' +
+          'full workflow: fetch the PR, read files, analyze failures, and ' +
+          'POST a comment using add_comment. Do not stop until the comment ' +
+          'is posted.';
+      }
 
       if (attempt > 1) {
         logger.warn(
@@ -702,18 +803,19 @@ export class LumosOrchestrator {
 
   /**
    * Fetch all comments on the PR via Bitbucket REST API, find any that start
-   * with "## Lumos" (case-insensitive), and delete them. This ensures only
-   * the latest analysis is visible and prevents comment accumulation across
-   * CI runs and retry attempts.
+   * with "## Lumos" (case-insensitive), capture a summary of the most recent
+   * one (for prior-run context), and delete them all. This ensures only the
+   * latest analysis is visible and prevents comment accumulation across CI
+   * runs and retry attempts.
    *
-   * This is done at the orchestrator level (not by the AI) because the AI
-   * does not reliably execute the DEDUPLICATE step from the system prompt.
+   * Returns the count of deleted comments and an optional compact summary
+   * of the most recent previous Lumos comment.
    */
   private async deletePreviousLumosComments(
     workspace: string,
     repository: string,
     pullRequestId: string
-  ): Promise<number> {
+  ): Promise<{ deleted: number; previousSummary?: string }> {
     const { headers, url } = this.getBitbucketCommentRequestDetails(
       workspace,
       repository,
@@ -721,7 +823,7 @@ export class LumosOrchestrator {
     );
 
     if (!headers || !url) {
-      return 0;
+      return { deleted: 0 };
     }
 
     try {
@@ -731,7 +833,7 @@ export class LumosOrchestrator {
         logger.warn(
           `Failed to fetch PR comments for cleanup: ${response.status} ${response.statusText}`
         );
-        return 0;
+        return { deleted: 0 };
       }
 
       const payload = (await response.json().catch(() => null)) as Record<
@@ -740,7 +842,7 @@ export class LumosOrchestrator {
       > | null;
 
       if (!payload) {
-        return 0;
+        return { deleted: 0 };
       }
 
       // Extract comment entries with their IDs and text
@@ -750,7 +852,7 @@ export class LumosOrchestrator {
           ? payload.comments
           : [];
 
-      const lumosComments: { id: number; version: number }[] = [];
+      const lumosComments: { id: number; version: number; text: string }[] = [];
       for (const entry of values) {
         if (!entry || typeof entry !== 'object') continue;
         const record = entry as Record<string, unknown>;
@@ -760,13 +862,24 @@ export class LumosOrchestrator {
           const version =
             typeof record.version === 'number' ? record.version : 0;
           if (typeof id === 'number') {
-            lumosComments.push({ id, version });
+            lumosComments.push({ id, version, text });
           }
         }
       }
 
       if (lumosComments.length === 0) {
-        return 0;
+        return { deleted: 0 };
+      }
+
+      // Capture a summary of the most recent Lumos comment (highest ID)
+      // before deleting. This gives the AI continuity between runs.
+      const mostRecent = lumosComments.reduce((a, b) => (a.id > b.id ? a : b));
+      const previousSummary = this.summarizeLumosComment(mostRecent.text);
+
+      if (previousSummary) {
+        logger.info(
+          `Captured summary of previous Lumos comment #${mostRecent.id} for context.`
+        );
       }
 
       logger.info(
@@ -798,10 +911,10 @@ export class LumosOrchestrator {
         }
       }
 
-      return deleted;
+      return { deleted, previousSummary };
     } catch (err) {
       logger.warn(`Error during Lumos comment cleanup: ${err}`);
-      return 0;
+      return { deleted: 0 };
     }
   }
 
@@ -890,6 +1003,13 @@ export class LumosOrchestrator {
     return undefined;
   }
 
+  private formatDuration(ms: number): string {
+    const totalSeconds = Math.round(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}m ${seconds}s`;
+  }
+
   private getBitbucketCommentRequestDetails(
     workspace: string,
     repository: string,
@@ -922,5 +1042,192 @@ export class LumosOrchestrator {
         Authorization: `Basic ${auth}`,
       },
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Resolve PR ID from branch name via Bitbucket REST API
+  // -------------------------------------------------------------------------
+
+  /**
+   * Look up the open pull request for a given branch using the Bitbucket
+   * Server REST API. Returns the numeric PR ID as a string, or undefined
+   * if no open PR is found or credentials are missing.
+   *
+   * Endpoint: GET /rest/api/latest/projects/{ws}/repos/{repo}/pull-requests
+   *           ?state=OPEN&at=refs/heads/{branch}
+   */
+  private async resolvePrIdByBranch(
+    workspace: string,
+    repository: string,
+    branch: string
+  ): Promise<string | undefined> {
+    const baseUrl =
+      process.env.BITBUCKET_BASE_URL ?? 'https://bitbucket.juspay.net';
+    const username = process.env.BITBUCKET_USERNAME;
+    const token = process.env.BITBUCKET_TOKEN;
+
+    if (!username || !token) {
+      logger.warn(
+        'Cannot resolve PR by branch: BITBUCKET_USERNAME or BITBUCKET_TOKEN not set.'
+      );
+      return undefined;
+    }
+
+    const refPath = `refs/heads/${branch}`;
+    const url =
+      `${baseUrl}/rest/api/latest/projects/${workspace}/repos/${repository}` +
+      `/pull-requests?state=OPEN&at=${encodeURIComponent(refPath)}`;
+
+    const auth = Buffer.from(`${username}:${token}`).toString('base64');
+
+    try {
+      logger.info(
+        `Resolving PR ID for branch "${branch}" via Bitbucket API...`
+      );
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Basic ${auth}`,
+        },
+      });
+
+      if (!response.ok) {
+        logger.warn(
+          `Failed to look up PRs by branch: ${response.status} ${response.statusText}`
+        );
+        return undefined;
+      }
+
+      const payload = (await response.json().catch(() => null)) as Record<
+        string,
+        unknown
+      > | null;
+
+      if (!payload) {
+        return undefined;
+      }
+
+      const values = Array.isArray(payload.values) ? payload.values : [];
+
+      if (values.length === 0) {
+        logger.warn(`No open PR found for branch "${branch}".`);
+        return undefined;
+      }
+
+      const prId = (values[0] as Record<string, unknown>).id;
+      if (typeof prId === 'number') {
+        logger.info(
+          `Resolved branch "${branch}" to PR #${prId}` +
+            (values.length > 1
+              ? ` (${values.length} open PRs found, using first)`
+              : '')
+        );
+        return String(prId);
+      }
+
+      logger.warn(`PR entry has no numeric id field.`);
+      return undefined;
+    } catch (err) {
+      logger.warn(`Error resolving PR by branch: ${err}`);
+      return undefined;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Summarize a previous Lumos comment into a compact context block
+  // -------------------------------------------------------------------------
+
+  /**
+   * Parse a Lumos comment (which follows the rigid format defined in the
+   * system prompt) and produce a compact ~10-line summary suitable for
+   * injecting into the AI's user message as prior-run context.
+   *
+   * Extracts: Verdict, stats line, Summary section text, and failure counts
+   * per category. Returns undefined if the comment cannot be parsed.
+   */
+  private summarizeLumosComment(commentText: string): string | undefined {
+    const lines: string[] = [];
+
+    // Verdict
+    const verdictMatch =
+      /\*?\*?Verdict:\s*(SAFE TO MERGE|NEEDS FIXES|REVIEW RECOMMENDED)\*?\*?/i.exec(
+        commentText
+      );
+    if (verdictMatch) {
+      lines.push(`- Verdict: ${verdictMatch[1].toUpperCase()}`);
+    }
+
+    // Stats line: "X passed | Y failed | Z flaky | duration"
+    const statsMatch =
+      /(\d+)\s+passed\s*\|\s*(\d+)\s+failed\s*\|\s*(\d+)\s+flaky\s*\|\s*(.+)/i.exec(
+        commentText
+      );
+    if (statsMatch) {
+      lines.push(
+        `- Stats: ${statsMatch[1]} passed | ${statsMatch[2]} failed | ${statsMatch[3]} flaky | ${statsMatch[4].trim()}`
+      );
+    }
+
+    // Summary section (text between "### Summary" and the next "###")
+    const summaryMatch = /###\s*Summary\s*\n([\s\S]*?)(?=\n###\s|$)/i.exec(
+      commentText
+    );
+    if (summaryMatch) {
+      const summaryText = summaryMatch[1].trim();
+      if (summaryText) {
+        lines.push(`- Summary: ${summaryText}`);
+      }
+    }
+
+    // Count failures per category by counting "####" sub-headings
+    const prCausedSection =
+      /###\s*Failures Caused by PR Changes\s*\n([\s\S]*?)(?=\n###\s|$)/i.exec(
+        commentText
+      );
+    if (prCausedSection) {
+      const sectionBody = prCausedSection[1];
+      if (/no test failures were caused/i.test(sectionBody)) {
+        lines.push('- PR-caused failures: 0');
+      } else {
+        const count = (sectionBody.match(/^####\s/gm) || []).length;
+        lines.push(`- PR-caused failures: ${count}`);
+      }
+    }
+
+    const flakySection =
+      /###\s*Pre-existing\s*\/\s*Flaky Tests\s*\n([\s\S]*?)(?=\n###\s|$)/i.exec(
+        commentText
+      );
+    if (flakySection) {
+      const sectionBody = flakySection[1];
+      if (/no flaky or pre-existing/i.test(sectionBody)) {
+        lines.push('- Pre-existing/Flaky: 0');
+      } else {
+        const count = (sectionBody.match(/^-\s+\*\*/gm) || []).length;
+        lines.push(`- Pre-existing/Flaky: ${count}`);
+      }
+    }
+
+    const infraSection =
+      /###\s*Infrastructure Issues\s*\n([\s\S]*?)(?=\n---|$)/i.exec(
+        commentText
+      );
+    if (infraSection) {
+      const sectionBody = infraSection[1];
+      if (/no infrastructure issues/i.test(sectionBody)) {
+        lines.push('- Infrastructure: 0');
+      } else {
+        const count = (sectionBody.match(/^-\s+\*\*/gm) || []).length;
+        lines.push(`- Infrastructure: ${count}`);
+      }
+    }
+
+    if (lines.length === 0) {
+      return undefined;
+    }
+
+    return lines.join('\n');
   }
 }

@@ -146,7 +146,7 @@ Added diagnostic logging before the `generate()` call: system prompt chars,
 user message chars, combined chars, estimated tokens (chars/4 heuristic),
 failure count. Helps pinpoint token budget issues from Jenkins logs.
 
-### Phase 9 -- Duplicate Comment Fix (in PR, pending merge)
+### Phase 9 -- Duplicate Comment Fix (Done, v1.1.2)
 
 Branch: `fix/find-by-branch-verification`. Three root causes for duplicate
 comments when using find-by-branch:
@@ -158,6 +158,26 @@ comments when using find-by-branch:
    extracted it back. Added `extractDiscoveredPrId()` to scan tool call args.
 3. Fallback posting guard read `options.pullRequestId` (original undefined)
    instead of local `pullRequestId` (updated with discovered ID).
+
+### Phase 10 -- Orchestrator Simplification (Done, v1.1.3)
+
+Branch: `fix/orchestrator-delete-old-comments`. Replaced AI-driven comment
+dedup with orchestrator-level cleanup. Major refactor:
+
+1. **Orchestrator-level comment cleanup**: Added `deletePreviousLumosComments()`
+   which runs before each attempt via Bitbucket REST API. Scans PR activities
+   for comments containing "Lumos -- Test Failure Analysis" and deletes them.
+2. **Removed `toolResults` tracking**: `readToolSuccess()`,
+   `extractDiscoveredPrId()`, `verifyCommentPosted()` all deleted. The
+   orchestrator no longer parses MCP tool results.
+3. **Fixed `isRunIncomplete()` no-action signal false positive**: Added
+   `!hasAnalysisTools` guard so the no-action signal only fires when the AI
+   hasn't used any analysis tools. Also added `list_pull_requests` to the
+   analysis tools check. Added `logger.info` diagnostic when no-action fires.
+4. **Simplified `CommentPostState`**: Removed `postedCommentText` and
+   `attemptedCommentText` fields. `extractCommentInfo()` now only checks
+   `toolsUsed` for `add_comment`.
+5. **Tests updated**: 10 tests passing in `test/orchestrator.test.ts`.
 
 ## Test Validation Results
 
@@ -197,6 +217,17 @@ comments when using find-by-branch:
   `get_pull_request` -> file reading -> `add_comment`. 164k input tokens,
   ~$0.50 per attempt. The duplicate was caused by the `find-by-branch`
   verification bug (fixed in Phase 9).
+- **Build 31** (2026-04-11, v1.1.2): 252 tests, 197 passed, 38 failed, 0 flaky.
+  Lumos posted single comment (duplicate fix working). Old comments NOT cleaned
+  up because `find-by-branch` still couldn't resolve to numeric PR ID for the
+  `deletePreviousLumosComments()` call.
+- **Build 33** (2026-04-12, v1.1.2): Comment not posted. Root cause: AI's
+  85-token text response matched the no-action signal check (`isRunIncomplete()`
+  line 464-472) which silently returned `false`, preventing retry. The AI had
+  not used any analysis tools. Fixed in v1.1.3.
+- **Build 35** (2026-04-12, v1.1.3): 233 tests, 195 passed, 38 failed, 3 flaky.
+  Lumos posted comment ID 1168599 successfully. Orchestrator-level cleanup and
+  no-action signal fix both working. First successful run with v1.1.3.
 
 **Key finding from Build 26**: The `maxTokens: 8192` in Lighthouse config
 was sufficient for this run (AI produced ~359 output tokens of tool calls +
@@ -263,8 +294,9 @@ Key findings across all runs:
 | Automated npm publish (v1.0.1)     | lumos      | Done         | --                  |
 | find-by-branch PR discovery        | lumos      | Done (1.1.0) | --                  |
 | Prompt size diagnostics            | lumos      | Done (1.1.1) | --                  |
-| find-by-branch verification fix    | lumos      | In PR        | Pending merge       |
-| Lighthouse PR dep `^1.1.1`         | lighthouse | Done         | --                  |
+| find-by-branch verification fix    | lumos      | Done (1.1.2) | --                  |
+| Orchestrator cleanup + signal fix  | lumos      | Done (1.1.3) | --                  |
+| Lighthouse PR dep `^1.1.3`         | lighthouse | Done         | --                  |
 | Lighthouse lockfile regen          | lighthouse | Done         | --                  |
 | Lighthouse maxTokens 8192->30000   | lighthouse | Done         | User commit pending |
 | `scripts/run-lumos.js`             | lighthouse | Done         | --                  |
@@ -275,6 +307,8 @@ Key findings across all runs:
 | Jenkinsfile AI sanity catch block  | lighthouse | Deferred     | Validate mock first |
 | `orchestrator.test.ts` type fixes  | lumos      | Done         | --                  |
 | Fix `hasCritical` false positive   | lumos      | Pending      | No                  |
+| Safe-to-merge comment (0 failures) | lumos      | Pending      | Needs PR lookup     |
+| Orchestrator PR lookup by branch   | lumos      | Pending      | No                  |
 | Two-pass analysis                  | lumos      | Not started  | No                  |
 | Structured output wiring           | lumos      | Not started  | No                  |
 
@@ -284,11 +318,11 @@ Key findings across all runs:
   falls back to `responseText` scanning which can match "PR-caused" in
   non-critical context. Runs 1, 3, 7 had false positives; runs 2, 4, 8 were
   correct. Not yet fixed.
-- **Duplicate comments on find-by-branch (FIXING)**: When PR ID is discovered
-  via branch, orchestrator couldn't verify the MCP `add_comment` succeeded,
-  causing a retry that posted a second identical comment. Fix in PR on branch
-  `fix/find-by-branch-verification`. Three root causes: MCP response parsing,
-  PR ID extraction, fallback guard variable.
+- **Duplicate comments on find-by-branch (RESOLVED in v1.1.2 + v1.1.3)**:
+  Fixed via MCP response parsing (v1.1.2) and orchestrator-level comment
+  cleanup (v1.1.3). Old comments from builds 26, 28, 31 still on PR #4638
+  because `deletePreviousLumosComments()` requires a numeric PR ID, and
+  `find-by-branch` doesn't resolve to one yet (pending Task 3).
 - **`posting.strategy: 'per-failure'` is dead code**: The config option exists
   in the Zod schema but is never implemented. Only `'single'` works.
 - **Fixtures not committed**: `fixtures/result-{4598,4610,4571,4638}.json` are
