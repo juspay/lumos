@@ -127,3 +127,71 @@ export interface SessionData {
   estimatedCost?: number;
   postedCommentText?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Test Generation (v2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Options passed to `LumosOrchestrator.generateTests()`.
+ */
+export interface TestGenOptions {
+  /** Bitbucket workspace key, e.g. "BZ" */
+  workspace: string;
+  /** Bitbucket repository slug, e.g. "lighthouse" */
+  repository: string;
+  /** Git branch name */
+  branch?: string;
+  /** Bitbucket PR ID */
+  pullRequestId?: string;
+  /** Test type: "mock" | "beta" | "ai-sanity" */
+  type: string;
+  /** If true, log prompts but skip AI call */
+  dryRun?: boolean;
+  /** When true, create a branch + PR instead of posting a comment */
+  createPr?: boolean;
+}
+
+/**
+ * Result returned from `LumosOrchestrator.generateTests()`.
+ */
+export interface TestGenResult {
+  /** Number of testable source files identified */
+  testsGenerated: number;
+  /** Number of comments posted to the PR */
+  commentsPosted: number;
+  /** URL of the created PR (only when createPr is true) */
+  prUrl?: string;
+  /** Jira ticket key created for the test work */
+  jiraTicket?: string;
+  tokenUsage?: TokenUsage;
+  estimatedCost?: number;
+  durationMs?: number;
+  toolsUsed?: string[];
+  rawResponse?: string;
+}
+
+/**
+ * PR metadata fetched from Bitbucket REST API.
+ */
+export interface PrMetadata {
+  id: number;
+  title: string;
+  description: string;
+  sourceBranch: string;
+  targetBranch: string;
+  changedFiles: ChangedFile[];
+}
+
+export interface ChangedFile {
+  path: string;
+  changeType: 'ADD' | 'MODIFY' | 'DELETE' | 'RENAME';
+}
+
+/**
+ * A generated test file with its target path and content.
+ */
+export interface GeneratedTestFile {
+  filePath: string;
+  content: string;
+}

@@ -6,28 +6,44 @@ content below this comment block. Keep under 60 lines. -->
 
 ## Current Focus
 
-Lighthouse PR #4638 cleanup + Lumos Task 2/3 planning.
-Branch (Lumos): `fix/orchestrator-delete-old-comments` (merged to upstream, v1.1.3).
-Branch (Lighthouse): `BZ-1364-run-lumos-v-1-capability-verification` targeting `beta`.
+Lumos v2 test generation feature complete and tested.
+Branch: `feat/test-generation-v2` (PR ready for review).
 
 ### What Changed (this session)
 
-- **v1.1.3 shipped**: Orchestrator-level comment cleanup, removed
-  `readToolSuccess()`/`extractDiscoveredPrId()`/`verifyCommentPosted()`,
-  simplified `CommentPostState` and `extractCommentInfo()`, fixed
-  `isRunIncomplete()` no-action signal false positive.
-- **Lighthouse Svelte reverts staged**: 4 files reverted to `beta` state
-  (HomeView, analytics, order, integration pages). Awaiting user commit.
-- **PR #4638 description updated**: Posted via Bitbucket DC REST API (PUT),
-  version 191, 49 reviewers preserved.
+- **Test generation v2 implemented**: `generateTests()` method on `LumosOrchestrator`
+  that analyzes PR diffs and generates Playwright E2E test files via agentic AI.
+- **9-step workflow with test intent planner**: AI must output a structured test
+  plan (scenarios, selectors, mock data) BEFORE generating code (step 4).
+- **Patterns template**: `templates/test-generation-patterns.md` (434 lines) with
+  Lighthouse test conventions (thin spec + thick handler, data-pw selectors,
+  setupBetaInterception, isMockingEnabled, Promise.race patterns, etc.).
+- **Bitbucket REST API utils**: `fetchPrMetadata()`, `fetchPrChangedFiles()`,
+  `createBitbucketPr()` in `src/utils/bitbucket-utils.ts`.
+- **Bug fix**: `fetchPrChangedFiles` path parsing -- `typeof pathObj.toString === 'function'`
+  always matched `Object.prototype.toString`, producing garbage paths. Fixed to
+  check `typeof rawToString === 'string'`.
+- **PR creation mode**: Parse test files from AI output, validate with tsc/eslint,
+  create Jira ticket, branch from source, commit, push, open PR.
+- **Existing test pre-lookup**: Maps changed source paths to likely test
+  directories (e.g., `src/routes/(app)/settings/` -> `tests/routes/settings/`).
+- **21 new unit tests** in `test/test-generation.test.ts`.
+- **Live tested**: PR #4816 (DataGrid pagination) -- 6 test scenarios generated,
+  comment posted (255s, 1.6M tokens, $4.93, 9 MCP tool calls).
+- **Local test script**: `scripts/test-gen-local.ts` for testing generateTests()
+  with `--pr`, `--live`, `--create-pr` flags.
 
 ### Recent Decisions
 
-- **Orchestrator-level cleanup over AI-driven dedup**: `deletePreviousLumosComments()`
-  runs before each attempt via Bitbucket REST API, not relying on AI to delete.
-- **Yama inline suggestion not worth implementing**: Wrapping `import { createLumos }`
-  in try-catch is unnecessary -- Jenkinsfile already wraps the entire call.
-- **No max failure cap**: User explicitly rejected capping failures.
+- **Single agentic call (not two-pass)**: AI reads diffs, plans, generates, and
+  posts in one `generate()` call. Test intent planner is a prompt step, not a
+  separate API call.
+- **Lean prompt + dynamic MCP tool use**: System prompt has patterns (~8k tokens),
+  AI fetches diffs/source/tests on-demand via MCP (~20-40k tokens per run).
+- **Skip RAG for test similarity**: Static test file index is sufficient. AI uses
+  `search_code` MCP tool + existing test hints from orchestrator pre-lookup.
+- **tsc/eslint validation only in --create-pr mode**: Comment-only mode relies on
+  AI self-review. PR creation mode validates before committing with fix-loop.
 
 ## npm Version History
 
@@ -39,12 +55,14 @@ Branch (Lighthouse): `BZ-1364-run-lumos-v-1-capability-verification` targeting `
 | 1.1.1   | Prompt size diagnostic logging                  | OIDC auto     |
 | 1.1.2   | Duplicate comment fix (MCP verification, PR ID) | OIDC auto     |
 | 1.1.3   | Orchestrator cleanup, no-action signal fix      | OIDC auto     |
+| 1.2.0   | PR lookup by branch, safe-to-merge, prior-run   | OIDC auto     |
+| 1.3.0   | Test generation v2 (pending merge)              | --            |
 
 ## Next Steps
 
-1. Implement Task 3: Orchestrator-level PR lookup by branch (resolve
-   `find-by-branch` to numeric PR ID via Bitbucket REST API before AI call)
-2. Implement Task 2: Post "safe to merge" comment when 0 failures (depends
-   on Task 3 for numeric PR ID)
-3. User commits Lighthouse Svelte reverts + Jenkinsfile `--verbose` flag
-4. Clean up old Lumos comments on PR #4638 (blocked until Task 3 lands)
+1. Merge `feat/test-generation-v2` PR to release
+2. Set up Lighthouse integration: copy patterns template to `memory-bank/`,
+   add `testGeneration` config to `lumos.config.yaml`, add `--generate-tests`
+   flag to `scripts/run-lumos.js`
+3. Add Jenkinsfile stage for test generation on PR builds
+4. Monitor token costs and quality across real PRs

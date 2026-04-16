@@ -8,6 +8,7 @@ in the Section Index. -->
 ## Section Index
 
 - [V1 Core + V1.1 Enhancements](#v1-core--v11-enhancements) -- in this file
+- [V2 Test Generation](#v2-test-generation) -- in this file
 - [npm Publishing Configuration](#npm-publishing-configuration) -- in this file
 - [Test Validation Results](#test-validation-results) -- in this file
 - [Remaining Planned Work](#remaining-planned-work) -- in this file
@@ -61,6 +62,82 @@ in the Section Index. -->
 - **Docs sync (2026-03-30)**: README + memory bank updated to match current
   env override names, config shape, exported types, and validation wording.
 - **Deleted**: `lumos_plan.md`, `neurolink-testing-agent-plan.md`.
+
+## V2 Test Generation
+
+**Status**: Complete. Branch `feat/test-generation-v2`, PR ready for review.
+
+### New Files
+
+- `src/prompts/test-gen-prompt.ts` -- System prompt + user message builders
+  for test generation (9-step workflow with test intent planner)
+- `src/utils/bitbucket-utils.ts` -- Bitbucket REST API helpers
+  (fetchPrMetadata, fetchPrChangedFiles, createBitbucketPr)
+- `src/utils/git-utils.ts` -- Git operations for PR creation mode
+- `src/utils/jira-utils.ts` -- Jira ticket creation and linking
+- `src/utils/test-file-parser.ts` -- Parse generated test files from AI
+  markdown output
+- `templates/test-generation-patterns.md` -- 434-line patterns template
+  for consumer projects (Lighthouse test conventions)
+- `scripts/test-gen-local.ts` -- Local dev script for testing generateTests()
+- `test/test-generation.test.ts` -- 21 unit tests
+
+### Modified Files
+
+- `src/orchestrator.ts` -- Added `generateTests()` method (~490 lines) with
+  `isTestableSourceFile()`, `findExistingTestHints()`, `validateGeneratedFiles()`,
+  `fixGeneratedFiles()` private helpers. No changes to existing `analyze()` flow.
+- `src/index.ts` -- `createLumos()` returns `{ analyze, generateTests }`
+  (backward-compatible, existing consumers unaffected)
+- `src/config.ts` -- Added `testGeneration: { patternsFile }` to config
+  interface, defaults, and Zod schema
+- `src/parsers/types.ts` -- Added TestGenOptions, TestGenResult, PrMetadata,
+  ChangedFile, GeneratedTestFile interfaces
+
+### Key Implementation Details
+
+- **Test intent planner (workflow step 4)**: Forces AI to output structured
+  test plan (user flow, scenarios, selectors, mock data) BEFORE generating code
+- **Existing test pre-lookup**: Maps source paths to test directories
+  heuristically (e.g., `src/routes/(app)/settings/` -> `tests/routes/settings/`)
+- **PR creation mode**: Parse test files -> create Jira ticket -> branch from
+  source -> write files -> validate with tsc/eslint -> fix-loop if errors ->
+  commit -> push -> create Bitbucket PR
+- **Fallback comment posting**: If AI doesn't call `add_comment`, orchestrator
+  extracts comment from response text and posts via REST API
+- **Bug fix**: `fetchPrChangedFiles` path parsing -- `typeof pathObj.toString === 'function'`
+  always matched Object.prototype.toString. Fixed to check string type.
+
+### Optimization Strategies Evaluated
+
+9 strategies were analyzed for improving test generation quality:
+
+| #   | Strategy              | Verdict                                        |
+| --- | --------------------- | ---------------------------------------------- |
+| 1   | Diff compression      | Skip (AI handles dynamically via MCP)          |
+| 2   | Relevance filter      | Partial (existing test pre-lookup implemented) |
+| 3   | Layered context       | Already done (lean prompt + dynamic MCP)       |
+| 4   | Test intent planner   | Implemented (workflow step 4)                  |
+| 5   | Test similarity (RAG) | Skip (static test hints sufficient)            |
+| 6   | Self-review loop      | Implemented (tsc/eslint in --create-pr mode)   |
+| 7   | Test plan             | Same as #4                                     |
+| 8   | Code extraction       | Skip (counter-productive for E2E tests)        |
+| 9   | Heuristic rules       | Already done (patterns doc covers these)       |
+
+### Live Test Results
+
+**PR #4816** (BZ-2236: DataGrid built-in pagination):
+
+- 3 testable source files detected
+- 6 test scenarios generated (pagination controls, page size, Select All,
+  cross-page selection persistence, Paginator hidden when fits)
+- Comment posted successfully via `add_comment`
+- Duration: 255s
+- Tokens: 1.6M input, 6.7k output, 1.6M total
+- Estimated cost: $4.93
+- MCP tools used: get_pull_request_diff, list_projects, list_repositories,
+  list_pull_requests, get_pull_request, get_file_content, search_files,
+  search_code, add_comment
 
 ## npm Publishing Configuration
 
@@ -283,34 +360,27 @@ Key findings across all runs:
 
 ## Remaining Work Table
 
-| Task                               | Repo       | Status       | Blocked?            |
-| ---------------------------------- | ---------- | ------------ | ------------------- |
-| npm publish config                 | lumos      | Done         | --                  |
-| semantic-release version upgrade   | lumos      | Done         | --                  |
-| npm self-upgrade crash fix         | lumos      | Done         | --                  |
-| Manual first publish (v1.0.0)      | lumos      | Done         | --                  |
-| MCP binary fix (local binary path) | lumos      | Done (1.0.1) | --                  |
-| OIDC fix (npm@11 + release.yml)    | lumos      | Done (1.0.1) | --                  |
-| Automated npm publish (v1.0.1)     | lumos      | Done         | --                  |
-| find-by-branch PR discovery        | lumos      | Done (1.1.0) | --                  |
-| Prompt size diagnostics            | lumos      | Done (1.1.1) | --                  |
-| find-by-branch verification fix    | lumos      | Done (1.1.2) | --                  |
-| Orchestrator cleanup + signal fix  | lumos      | Done (1.1.3) | --                  |
-| Lighthouse PR dep `^1.1.3`         | lighthouse | Done         | --                  |
-| Lighthouse lockfile regen          | lighthouse | Done         | --                  |
-| Lighthouse maxTokens 8192->30000   | lighthouse | Done         | User commit pending |
-| `scripts/run-lumos.js`             | lighthouse | Done         | --                  |
-| `lumos.config.yaml` in Lighthouse  | lighthouse | Done         | --                  |
-| `package.json` dep addition        | lighthouse | Done         | --                  |
-| Jenkinsfile mock tests catch block | lighthouse | Done         | --                  |
-| Jenkinsfile beta catch block       | lighthouse | Deferred     | Validate mock first |
-| Jenkinsfile AI sanity catch block  | lighthouse | Deferred     | Validate mock first |
-| `orchestrator.test.ts` type fixes  | lumos      | Done         | --                  |
-| Fix `hasCritical` false positive   | lumos      | Pending      | No                  |
-| Safe-to-merge comment (0 failures) | lumos      | Pending      | Needs PR lookup     |
-| Orchestrator PR lookup by branch   | lumos      | Pending      | No                  |
-| Two-pass analysis                  | lumos      | Not started  | No                  |
-| Structured output wiring           | lumos      | Not started  | No                  |
+| Task                               | Repo       | Status       | Blocked?      |
+| ---------------------------------- | ---------- | ------------ | ------------- |
+| npm publish config                 | lumos      | Done         | --            |
+| semantic-release version upgrade   | lumos      | Done         | --            |
+| npm self-upgrade crash fix         | lumos      | Done         | --            |
+| Manual first publish (v1.0.0)      | lumos      | Done         | --            |
+| MCP binary fix (local binary path) | lumos      | Done (1.0.1) | --            |
+| OIDC fix (npm@11 + release.yml)    | lumos      | Done (1.0.1) | --            |
+| Automated npm publish (v1.0.1)     | lumos      | Done         | --            |
+| find-by-branch PR discovery        | lumos      | Done (1.1.0) | --            |
+| Prompt size diagnostics            | lumos      | Done (1.1.1) | --            |
+| find-by-branch verification fix    | lumos      | Done (1.1.2) | --            |
+| Orchestrator cleanup + signal fix  | lumos      | Done (1.1.3) | --            |
+| PR lookup by branch + safe-merge   | lumos      | Done (1.2.0) | --            |
+| Test generation v2                 | lumos      | Done (PR)    | Merge pending |
+| Lighthouse patterns file           | lighthouse | Not started  | v2 merge      |
+| Lighthouse config + run-lumos.js   | lighthouse | Not started  | v2 merge      |
+| Jenkinsfile test-gen stage         | lighthouse | Not started  | v2 merge      |
+| Fix `hasCritical` false positive   | lumos      | Pending      | No            |
+| Two-pass analysis                  | lumos      | Not started  | No            |
+| Structured output wiring           | lumos      | Not started  | No            |
 
 ## Known Issues and Tech Debt
 

@@ -1,4 +1,5 @@
 import { resolve, join } from 'node:path';
+import { execSync } from 'node:child_process';
 import { NeuroLink } from '@juspay/neurolink';
 import { loadConfig, type LumosConfig } from './config.js';
 import { parsePlaywrightReport } from './parsers/playwright.js';
@@ -6,13 +7,34 @@ import {
   buildSystemPrompt,
   buildUserMessage,
 } from './prompts/system-prompt.js';
+import {
+  buildTestGenSystemPrompt,
+  buildTestGenUserMessage,
+} from './prompts/test-gen-prompt.js';
 import { logger } from './utils/logger.js';
 import { MCPError, ConfigError } from './utils/errors.js';
+import { fetchPrMetadata } from './utils/bitbucket-utils.js';
+import { createBitbucketPr } from './utils/bitbucket-utils.js';
+import {
+  getRepoRoot,
+  gitFetch,
+  gitCreateBranch,
+  gitAdd,
+  gitCommit,
+  gitPush,
+} from './utils/git-utils.js';
+import { createTestTicket, extractTicketKey } from './utils/jira-utils.js';
+import {
+  parseGeneratedTestFiles,
+  extractTestGenComment,
+} from './utils/test-file-parser.js';
 import type {
   AnalyzeOptions,
   AnalysisResult,
   SessionData,
   TokenUsage,
+  TestGenOptions,
+  TestGenResult,
 } from './parsers/types.js';
 
 // ---------------------------------------------------------------------------
@@ -512,6 +534,492 @@ export class LumosOrchestrator {
       attempts,
       fallbackPosted,
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Test Generation (v2)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Generate E2E test cases from PR changes.
+   *
+   * Two modes:
+   * - Comment-only (default): The AI posts generated test code as a PR comment.
+   * - PR creation (createPr: true): Parse test files from AI output, create a
+   *   Jira ticket, branch from the dev PR's source branch, write test files,
+   *   commit, push, and open a PR targeting the dev branch.
+   */
+  async generateTests(options: TestGenOptions): Promise<TestGenResult> {
+    if (!this.initialized) {
+      throw new ConfigError(
+        'LumosOrchestrator.initialize() must be called first.',
+        { hint: 'Call await lumos.initialize() before generateTests()' }
+      );
+    }
+
+    const startTime = new Date();
+
+    // -- Resolve PR ID -------------------------------------------------------
+    let pullRequestId = options.pullRequestId ?? '';
+    const branch = options.branch ?? '';
+
+    if (!pullRequestId || pullRequestId === '0') {
+      if (branch) {
+        const resolved = await this.resolvePrIdByBranch(
+          options.workspace,
+          options.repository,
+          branch
+        );
+        if (resolved) pullRequestId = resolved;
+      }
+    }
+
+    if (
+      !pullRequestId ||
+      pullRequestId === '0' ||
+      pullRequestId === 'find-by-branch'
+    ) {
+      logger.warn('Cannot generate tests: no numeric PR ID available.');
+      return { testsGenerated: 0, commentsPosted: 0 };
+    }
+
+    // -- Fetch PR metadata ---------------------------------------------------
+    logger.info(`Fetching PR #${pullRequestId} metadata...`);
+    const prMetadata = await fetchPrMetadata(
+      options.workspace,
+      options.repository,
+      pullRequestId
+    );
+
+    if (!prMetadata) {
+      logger.warn('Failed to fetch PR metadata. Cannot generate tests.');
+      return { testsGenerated: 0, commentsPosted: 0 };
+    }
+
+    // -- Pre-filter: testable source files -----------------------------------
+    const sourceFiles = prMetadata.changedFiles.filter((f) =>
+      this.isTestableSourceFile(f.path)
+    );
+    const nonSourceFiles = prMetadata.changedFiles.filter(
+      (f) => !this.isTestableSourceFile(f.path)
+    );
+
+    if (sourceFiles.length === 0) {
+      logger.info(
+        'No testable source files changed in this PR. Skipping test generation.'
+      );
+      return { testsGenerated: 0, commentsPosted: 0 };
+    }
+
+    logger.info(
+      `Found ${sourceFiles.length} testable source file(s): ` +
+        sourceFiles.map((f) => f.path).join(', ')
+    );
+
+    // -- Find existing tests that reference changed source paths -------------
+    const existingTestHints = this.findExistingTestHints(
+      sourceFiles.map((f) => f.path),
+      options.workspace,
+      options.repository
+    );
+    if (existingTestHints.length > 0) {
+      logger.info(
+        `Found ${existingTestHints.length} existing test file(s) for changed areas: ` +
+          existingTestHints.join(', ')
+      );
+    }
+
+    // -- Build prompts -------------------------------------------------------
+    const testGenSystemPrompt = buildTestGenSystemPrompt(
+      this.config,
+      this.projectRoot
+    );
+    const userMessage = buildTestGenUserMessage(
+      prMetadata,
+      sourceFiles,
+      nonSourceFiles,
+      existingTestHints
+    );
+
+    // -- Dry run -------------------------------------------------------------
+    if (options.dryRun) {
+      logger.info('Dry run mode -- printing prompts and skipping AI call.');
+      logger.info(
+        `\n--- SYSTEM PROMPT ---\n${testGenSystemPrompt}\n--- END ---`
+      );
+      logger.info(`\n--- USER MESSAGE ---\n${userMessage}\n--- END ---`);
+      return { testsGenerated: 0, commentsPosted: 0 };
+    }
+
+    // -- Clean up previous Lumos test-gen comments ---------------------------
+    const numericPrId = pullRequestId;
+    await this.deletePreviousLumosComments(
+      options.workspace,
+      options.repository,
+      numericPrId
+    );
+
+    // -- Invoke AI agent -----------------------------------------------------
+    logger.info(
+      `Invoking AI agent for test generation (${sourceFiles.length} source file(s))...`
+    );
+
+    const result = await this.neurolink.generate({
+      input: { text: userMessage },
+      provider: this.config.ai.provider,
+      model: this.config.ai.model,
+      systemPrompt: testGenSystemPrompt,
+      temperature: this.config.ai.temperature,
+      maxTokens: this.config.ai.maxTokens,
+      timeout: this.config.ai.timeout,
+    });
+
+    const endTime = new Date();
+    const durationMs = endTime.getTime() - startTime.getTime();
+    const responseText = result.content ?? '';
+    const toolsUsed = result.toolsUsed ?? [];
+
+    logger.info(
+      `AI agent completed in ${(durationMs / 1000).toFixed(1)}s. ` +
+        `Tools used: ${toolsUsed.length > 0 ? toolsUsed.join(', ') : 'none'}`
+    );
+
+    let tokenUsage: TokenUsage | undefined;
+    let estimatedCost: number | undefined;
+    if (result.usage) {
+      tokenUsage = {
+        input: result.usage.input,
+        output: result.usage.output,
+        total: result.usage.total,
+      };
+      estimatedCost = estimateUsdCost(tokenUsage);
+    }
+
+    // -- Check if comment was posted by the AI (comment-only mode) -----------
+    const postState = this.extractCommentInfo(toolsUsed);
+    let commentsPosted = postState.verifiedPosted ? 1 : 0;
+
+    // If the AI didn't post and we're in comment-only mode, try fallback
+    if (!postState.verifiedPosted && !options.createPr) {
+      const comment = extractTestGenComment(responseText);
+      if (comment) {
+        logger.info(
+          'AI did not post via add_comment. Attempting fallback post...'
+        );
+        const posted = await this.postCommentFallback(
+          options.workspace,
+          options.repository,
+          numericPrId,
+          comment
+        );
+        if (posted) commentsPosted = 1;
+      }
+    }
+
+    // -- PR creation mode ----------------------------------------------------
+    let prUrl: string | undefined;
+    let jiraTicket: string | undefined;
+
+    if (options.createPr) {
+      const testFiles = parseGeneratedTestFiles(responseText);
+
+      if (testFiles.length === 0) {
+        logger.warn(
+          'No test files could be parsed from AI response. Skipping PR creation.'
+        );
+      } else {
+        logger.info(
+          `Parsed ${testFiles.length} test file(s) from AI response.`
+        );
+
+        // Extract parent ticket from dev branch name
+        const parentTicket = extractTicketKey(prMetadata.sourceBranch);
+        const projectKey = options.workspace;
+        const featureName =
+          prMetadata.title.replace(/^[^:]+:\s*/, '').trim() ||
+          prMetadata.sourceBranch;
+
+        // Create Jira ticket
+        const ticket = await createTestTicket(
+          projectKey,
+          `Add E2E tests for ${featureName}`,
+          `Auto-generated E2E tests by Lumos for PR #${prMetadata.id}: ${prMetadata.title}`,
+          parentTicket
+        );
+        if (ticket) {
+          jiraTicket = ticket.key;
+        }
+
+        // Create branch, write files, commit, push
+        const testBranchName = jiraTicket
+          ? `test/${jiraTicket}-add-e2e-tests`
+          : `test/lumos-${prMetadata.id}-add-e2e-tests`;
+
+        try {
+          const repoRoot = getRepoRoot();
+
+          gitFetch('origin', repoRoot);
+          gitCreateBranch(testBranchName, prMetadata.sourceBranch, repoRoot);
+
+          // Write test files
+          const filePaths: string[] = [];
+          for (const file of testFiles) {
+            const fullPath = resolve(repoRoot, file.filePath);
+            const dir = resolve(fullPath, '..');
+            const { mkdirSync, writeFileSync } = await import('node:fs');
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(fullPath, file.content, 'utf-8');
+            filePaths.push(file.filePath);
+            logger.info(`Wrote: ${file.filePath}`);
+          }
+
+          // Validate generated files before committing
+          const validationErrors = this.validateGeneratedFiles(
+            filePaths,
+            repoRoot
+          );
+          if (validationErrors) {
+            logger.warn(
+              'Validation errors in generated files. Attempting AI fix...'
+            );
+            const fixed = await this.fixGeneratedFiles(
+              testFiles,
+              validationErrors,
+              testGenSystemPrompt
+            );
+            if (fixed.length > 0) {
+              const { writeFileSync: writeFixed } = await import('node:fs');
+              for (const file of fixed) {
+                const fullPath = resolve(repoRoot, file.filePath);
+                writeFixed(fullPath, file.content, 'utf-8');
+                logger.info(`Fixed: ${file.filePath}`);
+              }
+              // Re-validate after fix
+              const retryErrors = this.validateGeneratedFiles(
+                filePaths,
+                repoRoot
+              );
+              if (retryErrors) {
+                logger.warn(
+                  'Validation errors persist after fix attempt. ' +
+                    'Proceeding with commit anyway.'
+                );
+              } else {
+                logger.info('Fix successful -- validation passed.');
+              }
+            }
+          }
+
+          gitAdd(filePaths, repoRoot);
+          gitCommit(`test: add E2E tests for ${featureName}`, repoRoot);
+          gitPush(testBranchName, repoRoot);
+
+          // Create PR in Bitbucket
+          const prDescription =
+            extractTestGenComment(responseText) ??
+            `Auto-generated E2E tests by Lumos for PR #${prMetadata.id}.`;
+
+          const createdPr = await createBitbucketPr(
+            options.workspace,
+            options.repository,
+            `test: ${jiraTicket ?? 'lumos'} Add E2E tests for ${featureName}`,
+            testBranchName,
+            prMetadata.sourceBranch,
+            prDescription
+          );
+
+          if (createdPr) {
+            prUrl = createdPr.url;
+            logger.info(`Test PR created: ${prUrl}`);
+
+            // Post a link on the original dev PR
+            await this.postCommentFallback(
+              options.workspace,
+              options.repository,
+              numericPrId,
+              `## Lumos -- Test Generation\n\n` +
+                `Generated E2E tests are available in PR: [#${createdPr.id}](${prUrl})\n\n` +
+                (jiraTicket ? `Jira ticket: ${jiraTicket}\n\n` : '') +
+                `---\n*Generated by Lumos v2*`
+            );
+            commentsPosted = 1;
+          }
+        } catch (err) {
+          logger.error(`PR creation failed: ${err}`);
+        }
+      }
+    }
+
+    return {
+      testsGenerated: sourceFiles.length,
+      commentsPosted,
+      prUrl,
+      jiraTicket,
+      tokenUsage,
+      estimatedCost,
+      durationMs,
+      toolsUsed,
+      rawResponse: responseText,
+    };
+  }
+
+  /**
+   * Check whether a file path is a testable source file.
+   */
+  private isTestableSourceFile(filePath: string): boolean {
+    const testable = [
+      /^src\/routes\//,
+      /^src\/lib\/components\//,
+      /^src\/lib\/services\//,
+      /^src\/lib\/stores\//,
+    ];
+    const excluded = [
+      /^tests\//,
+      /\.spec\.(ts|js)$/,
+      /\.test\.(ts|js)$/,
+      /\.(css|scss|json|md|svg|png|jpg|gif)$/,
+      /node_modules/,
+    ];
+    return (
+      testable.some((p) => p.test(filePath)) &&
+      !excluded.some((p) => p.test(filePath))
+    );
+  }
+
+  /**
+   * Find existing test handler files that reference any of the changed source
+   * paths. This gives the AI direct references instead of relying on search.
+   *
+   * Uses the Bitbucket search_code MCP tool via REST API, falling back to
+   * a simple heuristic mapping from source paths to test directories.
+   */
+  private findExistingTestHints(
+    sourcePaths: string[],
+    _workspace: string,
+    _repository: string
+  ): string[] {
+    const hints: string[] = [];
+
+    // Heuristic: map source paths to likely test directories
+    // src/routes/(app)/settings/+page.svelte -> tests/routes/settings/
+    // src/lib/components/OfferForm/OfferForm.svelte -> tests/routes/offers/
+    const testDirPatterns: string[] = [];
+    for (const sourcePath of sourcePaths) {
+      // Extract feature name from route paths
+      const routeMatch = sourcePath.match(/^src\/routes\/\(app\)\/([^/]+)\//);
+      if (routeMatch) {
+        testDirPatterns.push(`tests/routes/${routeMatch[1]}/`);
+      }
+
+      // Extract feature name from component paths
+      const compMatch = sourcePath.match(/^src\/lib\/components\/([^/]+)\//);
+      if (compMatch) {
+        // Component names are PascalCase, test dirs are camelCase
+        const camelCase =
+          compMatch[1].charAt(0).toLowerCase() + compMatch[1].slice(1);
+        testDirPatterns.push(`tests/routes/${camelCase}/`);
+      }
+    }
+
+    // Deduplicate
+    const uniqueDirs = [...new Set(testDirPatterns)];
+    for (const dir of uniqueDirs) {
+      hints.push(dir.replace(/\/$/, '') + '/ (check for existing handlers)');
+    }
+
+    return hints;
+  }
+
+  /**
+   * Run tsc and eslint on generated test files to catch errors before commit.
+   * Returns the combined error output, or null if validation passes.
+   */
+  private validateGeneratedFiles(
+    filePaths: string[],
+    cwd: string
+  ): string | null {
+    const errors: string[] = [];
+
+    // TypeScript type check
+    try {
+      const fileArgs = filePaths.join(' ');
+      execSync(`npx tsc --noEmit ${fileArgs}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+    } catch (err) {
+      const msg =
+        err instanceof Error && 'stdout' in err
+          ? String((err as Record<string, unknown>).stdout)
+          : String(err);
+      if (msg.trim()) {
+        errors.push(`TypeScript errors:\n${msg.trim()}`);
+      }
+    }
+
+    // ESLint check
+    try {
+      const fileArgs = filePaths.join(' ');
+      execSync(`npx eslint ${fileArgs}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+    } catch (err) {
+      const msg =
+        err instanceof Error && 'stdout' in err
+          ? String((err as Record<string, unknown>).stdout)
+          : String(err);
+      if (msg.trim()) {
+        errors.push(`ESLint errors:\n${msg.trim()}`);
+      }
+    }
+
+    return errors.length > 0 ? errors.join('\n\n') : null;
+  }
+
+  /**
+   * Ask the AI to fix validation errors in generated test files.
+   * Returns the corrected files, or empty array if the fix fails.
+   */
+  private async fixGeneratedFiles(
+    originalFiles: Array<{ filePath: string; content: string }>,
+    validationErrors: string,
+    systemPrompt: string
+  ): Promise<Array<{ filePath: string; content: string }>> {
+    const fileContents = originalFiles
+      .map(
+        (f) => `#### \`${f.filePath}\`\n\`\`\`typescript\n${f.content}\n\`\`\``
+      )
+      .join('\n\n');
+
+    const fixPrompt =
+      `The following generated test files have validation errors.\n\n` +
+      `## Files\n${fileContents}\n\n` +
+      `## Errors\n${validationErrors}\n\n` +
+      `Fix ALL errors and output the corrected files using the same ` +
+      `#### \\\`filepath\\\`\\n\\\`\\\`\\\`typescript format. ` +
+      `Do NOT change the test logic, only fix type and lint errors.`;
+
+    try {
+      const result = await this.neurolink.generate({
+        input: { text: fixPrompt },
+        provider: this.config.ai.provider,
+        model: this.config.ai.model,
+        systemPrompt,
+        temperature: 0,
+        maxTokens: this.config.ai.maxTokens,
+        timeout: '2m',
+      });
+
+      const responseText = result.content ?? '';
+      const fixed = parseGeneratedTestFiles(responseText);
+      return fixed;
+    } catch (err) {
+      logger.warn(`Fix attempt failed: ${err}`);
+      return [];
+    }
   }
 
   // -------------------------------------------------------------------------

@@ -49,6 +49,11 @@ export interface LumosConfig {
       baseUrl?: string;
     };
   };
+
+  testGeneration: {
+    /** Path to the test generation patterns file (relative to project root) */
+    patternsFile: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +89,9 @@ const DEFAULT_CONFIG: LumosConfig = {
     langfuse: {
       enabled: false,
     },
+  },
+  testGeneration: {
+    patternsFile: 'memory-bank/test-generation-patterns.md',
   },
 };
 
@@ -122,6 +130,11 @@ const configSchema = z.object({
       secretKey: z.string().optional(),
       baseUrl: z.string().optional(),
     }),
+  }),
+  testGeneration: z.object({
+    patternsFile: z
+      .string()
+      .min(1, 'testGeneration.patternsFile must be non-empty'),
   }),
 });
 

@@ -7,53 +7,66 @@ evolves or new patterns are introduced. -->
 ## Architecture Overview
 
 ```
-Report JSON --> Parser --> Failures + Stats
-                               |
-                               v
-Config YAML --> Config Loader (3-layer) --> LumosConfig (Zod-validated)
-                               |
-                               v
-Memory Bank files --> Prompt Builder --> System Prompt + User Message
-                               |
-                               v
-                      NeuroLink Agent (autonomous)
-                        |            |
-                   Bitbucket MCP   Jira MCP (optional)
-                        |
-                   PR diff, source files, delete old comments, post new comment
-                               |
-                               v
-                      Orchestrator (retry loop, fallback posting, cost tracking)
+                          ┌─────────────────────────────────────────┐
+                          │          LumosOrchestrator              │
+                          │                                         │
+  Report JSON ──► Parser ─┤  analyze()          generateTests()     │
+                          │    │                     │               │
+  Config YAML ──► Config ─┤    │                     │               │
+                          │    v                     v               │
+  Memory Bank ──► Prompt ─┤  System Prompt    TestGen System Prompt  │
+                          │  + User Message   + User Message         │
+                          │    │                     │               │
+                          │    v                     v               │
+                          │        NeuroLink Agent (autonomous)      │
+                          │          │            │                  │
+                          │     Bitbucket MCP   Jira MCP (optional)  │
+                          │          │                               │
+                          │     PR diff, source files, search,       │
+                          │     delete old comments, post comment    │
+                          │          │                               │
+                          │          v                               │
+                          │  Retry loop, fallback posting,           │
+                          │  cost tracking, tsc/eslint validation    │
+                          └─────────────────────────────────────────┘
 ```
 
-The AI agent is fully autonomous. Lumos sends one `generate()` call and relies
-on NeuroLink's internal tool-call loop to drive MCP usage. If the run is
-incomplete (no comment posted), the orchestrator retries up to MAX_ATTEMPTS=2
-times, or falls back to posting via Bitbucket REST API directly.
+Two primary flows:
+
+1. **analyze()** (v1): Parse Playwright report failures, AI analyzes against PR diff,
+   posts comment with root cause analysis and fix suggestions.
+2. **generateTests()** (v2): Fetch PR metadata + changed files via Bitbucket REST API,
+   filter testable source files, AI generates E2E test code, posts as PR comment
+   or creates a test PR with Jira ticket.
 
 ## File Map
 
-| File                            | Purpose                                                                                                                |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `src/index.ts`                  | Public API: async `createLumos()` factory + all exports                                                                |
-| `src/orchestrator.ts`           | `LumosOrchestrator` class: init, MCP registration, `analyze()` retry loop, fallback posting, cost tracking             |
-| `src/config.ts`                 | 3-layer config loader with Zod validation (defaults -> YAML -> env overrides)                                          |
-| `src/parsers/types.ts`          | All TypeScript interfaces (TestFailure, AnalyzeOptions, TokenUsage, AnalysisResult, SessionData, etc.)                 |
-| `src/parsers/playwright.ts`     | Playwright JSON report parser (recursive suite walker, failedAttempts computation)                                     |
-| `src/prompts/system-prompt.ts`  | System prompt + user message builders, memory bank loading (15k char truncation)                                       |
-| `src/prompts/schemas.ts`        | Zod schemas for structured output (future use)                                                                         |
-| `src/utils/errors.ts`           | Custom error hierarchy: LumosError, ConfigError, ReportParseError, MCPError, AnalysisTimeoutError, BudgetExceededError |
-| `src/utils/logger.ts`           | Leveled console logger with `[Lumos]` prefix                                                                           |
-| `scripts/test-local.ts`         | Local test script with PR_CONFIGS for 4598 and 4638                                                                    |
-| `lumos.config.yaml`             | Default config (litellm/glm-latest for local dev, budget limits)                                                       |
-| `vitest.config.ts`              | Test config (v8 coverage)                                                                                              |
-| `test/orchestrator.test.ts`     | Unit tests for LumosOrchestrator (analyze flow, retry, fallback)                                                       |
-| `test/playwright.test.ts`       | Unit tests for Playwright report parser                                                                                |
-| `.github/workflows/ci.yml`      | CI workflow: tests on Node 20.x and 22.x                                                                               |
-| `.github/workflows/release.yml` | npm publish pipeline: semantic-release with OIDC provenance on push to `release` branch                                |
-| `eslint.config.js`              | ESLint flat config with typescript-eslint                                                                              |
-| `commitlint.config.cjs`         | Conventional commits enforcement                                                                                       |
-| `.releaserc.json`               | semantic-release config: Jira prefix stripping, npm provenance, changelog, GitHub releases                             |
+| File                                    | Purpose                                                                                                                |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`                          | Public API: async `createLumos()` factory returning `{ analyze, generateTests }` + all exports                         |
+| `src/orchestrator.ts`                   | `LumosOrchestrator` class: init, MCP registration, `analyze()` + `generateTests()` flows                               |
+| `src/config.ts`                         | 3-layer config loader with Zod validation (defaults -> YAML -> env overrides)                                          |
+| `src/parsers/types.ts`                  | All TypeScript interfaces (TestFailure, AnalyzeOptions, TestGenOptions, TokenUsage, PrMetadata, ChangedFile, etc.)     |
+| `src/parsers/playwright.ts`             | Playwright JSON report parser (recursive suite walker, failedAttempts computation)                                     |
+| `src/prompts/system-prompt.ts`          | V1 system prompt + user message builders for analyze(), memory bank loading (15k char truncation)                      |
+| `src/prompts/test-gen-prompt.ts`        | V2 system prompt + user message builders for generateTests(), patterns file loading                                    |
+| `src/prompts/schemas.ts`                | Zod schemas for structured output (future use)                                                                         |
+| `src/utils/bitbucket-utils.ts`          | Bitbucket REST API: fetchPrMetadata, fetchPrChangedFiles, createBitbucketPr                                            |
+| `src/utils/git-utils.ts`                | Git operations: getRepoRoot, gitCreateBranch, gitAdd, gitCommit, gitPush                                               |
+| `src/utils/jira-utils.ts`               | Jira REST API: extractTicketKey, createTestTicket, linkTickets                                                         |
+| `src/utils/test-file-parser.ts`         | Parse generated test files from AI markdown output, extract test-gen comment                                           |
+| `src/utils/errors.ts`                   | Custom error hierarchy: LumosError, ConfigError, ReportParseError, MCPError, AnalysisTimeoutError, BudgetExceededError |
+| `src/utils/logger.ts`                   | Leveled console logger with `[Lumos]` prefix                                                                           |
+| `scripts/test-local.ts`                 | Local test script for analyze() with PR_CONFIGS for 4598 and 4638                                                      |
+| `scripts/test-gen-local.ts`             | Local test script for generateTests() with --pr, --live, --create-pr flags                                             |
+| `templates/test-generation-patterns.md` | Patterns template for consumer projects (Lighthouse test conventions)                                                  |
+| `lumos.config.yaml`                     | Default config (litellm/glm-latest for local dev, budget limits)                                                       |
+| `vitest.config.ts`                      | Test config (v8 coverage)                                                                                              |
+| `test/orchestrator.test.ts`             | Unit tests for LumosOrchestrator (analyze flow, retry, fallback)                                                       |
+| `test/playwright.test.ts`               | Unit tests for Playwright report parser                                                                                |
+| `test/test-generation.test.ts`          | Unit tests for test generation (parsers, prompt builders, file filtering)                                              |
+| `.github/workflows/ci.yml`              | CI workflow: tests on Node 20.x and 22.x                                                                               |
+| `.github/workflows/release.yml`         | npm publish pipeline: semantic-release with OIDC provenance on push to `release` branch                                |
 
 ## Config Loading Pattern (3 layers)
 
@@ -106,6 +119,8 @@ needs `command`, `args`, `transport`, `env`.
 
 ## Prompt Engineering
 
+### V1: Test Failure Analysis (`system-prompt.ts`)
+
 The system prompt has 5 fixed sections + 1 optional section:
 
 1. **ROLE**: Identity and high-level job description
@@ -134,6 +149,38 @@ The user message (built at runtime) contains: test run summary stats, and
 each failure's spec file, title, error message, error location, truncated
 stack trace (30 lines max, 2000 chars max), and retry info formatted as
 "X/Y failed" (e.g., "2/3 failed").
+
+### V2: Test Generation (`test-gen-prompt.ts`)
+
+The test generation system prompt has 6 sections:
+
+1. **ROLE**: Expert Playwright E2E test author, never guesses selectors
+2. **AVAILABLE TOOLS**: Bitbucket MCP tools (get_pull_request_diff, get_file_content,
+   search_code, add_comment)
+3. **WORKFLOW** (9 steps):
+   - Step 1: READ PR diff per file (targeted, not bulk)
+   - Step 2: UNDERSTAND intent and user flow
+   - Step 3: DECIDE what to test (new feature / bug fix / refactor / style)
+   - Step 4: PLAN test scenarios (test intent planner -- structured output)
+   - Step 5: READ existing test handler for similar feature
+   - Step 6: READ component source, verify selectors, check mocks
+   - Step 7: GENERATE test files (thin spec + thick handler)
+   - Step 8: SELF-REVIEW checklist (selectors, structure, types, resilience, plan adherence)
+   - Step 9: POST comment with generated code
+4. **TEST GENERATION GUIDELINES**: Accuracy rules, selector verification,
+   setupBetaInterception, isMockingEnabled, utility functions, failure patterns
+5. **COMMENT FORMAT**: Exact markdown template with sections: Summary, Test Plan
+   (scenario table), Generated Files, File Placement, Selectors Used, Assumptions
+6. **TEST PATTERNS** (optional): Loaded from `config.testGeneration.patternsFile`
+   (consumer's project patterns, e.g., Lighthouse conventions)
+
+The user message contains: PR context (title, description, branches), changed
+source files with change types, non-source files, and existing test hints
+(pre-computed by the orchestrator).
+
+Key design: the test intent planner (step 4) forces the AI to output a structured
+plan BEFORE generating code. This prevents the AI from jumping straight to coding
+and missing edge cases. The plan appears in the comment under "### Test Plan".
 
 ## Orchestrator-Level Comment Cleanup
 
@@ -215,7 +262,25 @@ LumosConfig {
   report: { jsonPath }, memoryBank: string[],
   posting: { strategy },
   observability: { langfuse: { enabled, publicKey?, secretKey?, baseUrl? } },
+  testGeneration: { patternsFile },
 }
+
+TestGenOptions {
+  workspace, repository, branch?, pullRequestId?, type, dryRun?, createPr?
+}
+
+TestGenResult {
+  testsGenerated, commentsPosted, prUrl?, jiraTicket?,
+  tokenUsage?, estimatedCost?, durationMs?, toolsUsed?, rawResponse?
+}
+
+PrMetadata {
+  id, title, description, sourceBranch, targetBranch, changedFiles: ChangedFile[]
+}
+
+ChangedFile { path, changeType: 'ADD' | 'MODIFY' | 'DELETE' | 'RENAME' }
+
+GeneratedTestFile { filePath, content }
 ```
 
 ## Error Hierarchy
@@ -252,6 +317,13 @@ All errors extend `LumosError` and carry a machine-readable `code` plus a
 | Branch-based PR discovery (`find-by-branch`)          | Matches Yama's pattern. Jenkins `CHANGE_ID` is unavailable in some contexts (manual trigger, non-multibranch). AI discovers PR via `list_pull_requests` using branch name. Fallback REST posting disabled when PR ID is non-numeric.                                                                     |
 | Orchestrator-level comment cleanup                    | `deletePreviousLumosComments()` runs before each attempt via Bitbucket REST API. More reliable than relying on the AI to delete old comments as part of its workflow. Removed `readToolSuccess()`, `extractDiscoveredPrId()`, `verifyCommentPosted()` -- orchestrator no longer parses MCP tool results. |
 | Simplified verification (v1.1.3)                      | Instead of parsing MCP `CallToolResult` format to verify `add_comment` success, the orchestrator checks `toolsUsed.includes('add_comment')`. Combined with orchestrator-level cleanup, this eliminates the duplicate comment bug without complex result parsing.                                         |
+| Single agentic call for test gen                      | AI reads diffs, plans, generates, and posts in one `generate()` call. No multi-turn or two-pass architecture. Keeps infrastructure simple.                                                                                                                                                               |
+| Test intent planner as prompt step                    | Forces AI to output structured test plan before code generation. Catches wrong assumptions early. Adds ~500 tokens but prevents wasted code generation.                                                                                                                                                  |
+| Lean prompt + dynamic MCP tool use                    | System prompt has patterns (~8k tokens). AI fetches diffs/source/tests on-demand via MCP (~20-40k tokens). Total ~60-100k tokens (<10% of 1M budget).                                                                                                                                                    |
+| Existing test pre-lookup (not RAG)                    | Orchestrator maps source paths to test directories heuristically. Cheaper and simpler than vector search. AI also uses `search_code` for refinement.                                                                                                                                                     |
+| tsc/eslint validation only in --create-pr mode        | Comment-only mode relies on AI self-review. PR creation mode validates generated files before committing, with AI fix-loop if errors found.                                                                                                                                                              |
+| Bitbucket REST API for PR metadata                    | `fetchPrMetadata()` and `fetchPrChangedFiles()` use direct REST calls instead of MCP tools. Needed before AI call to filter files and build prompts.                                                                                                                                                     |
+| Patterns file loaded from consumer project            | `testGeneration.patternsFile` resolves relative to consumer's project root. Each project customizes test conventions (selectors, mocking, helpers).                                                                                                                                                      |
 
 ## Release & Publishing Pattern
 

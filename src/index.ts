@@ -30,6 +30,8 @@ export type {
   AnalysisResult,
   TokenUsage,
   SessionData,
+  TestGenOptions,
+  TestGenResult,
 } from './parsers/types.js';
 export type {
   FailureClassificationType,
@@ -44,26 +46,27 @@ export type {
 /**
  * Create and initialize a Lumos instance.
  *
- * Returns a simple `{ analyze }` handle -- the consumer never manages
- * the orchestrator lifecycle directly.
+ * Returns `{ analyze, generateTests }` handles -- the consumer never
+ * manages the orchestrator lifecycle directly.
  *
  * Usage:
  * ```ts
  * import { createLumos } from '@juspay/lumos';
  *
  * const lumos = await createLumos();
- * const result = await lumos.analyze({
- *   workspace: 'BZ',
- *   repository: 'lighthouse',
- *   pullRequestId: '4638',
- *   type: 'mock',
- * });
+ * const result = await lumos.analyze({ ... });
+ * // or
+ * const genResult = await lumos.generateTests({ ... });
  * ```
  */
-export async function createLumos(
-  projectRoot?: string
-): Promise<{ analyze: LumosOrchestrator['analyze'] }> {
+export async function createLumos(projectRoot?: string): Promise<{
+  analyze: LumosOrchestrator['analyze'];
+  generateTests: LumosOrchestrator['generateTests'];
+}> {
   const orchestrator = new LumosOrchestrator(projectRoot);
   await orchestrator.initialize();
-  return { analyze: orchestrator.analyze.bind(orchestrator) };
+  return {
+    analyze: orchestrator.analyze.bind(orchestrator),
+    generateTests: orchestrator.generateTests.bind(orchestrator),
+  };
 }
