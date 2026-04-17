@@ -224,3 +224,146 @@ export async function createBitbucketPr(
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// List open PRs for a source branch
+// ---------------------------------------------------------------------------
+
+export interface PrSummary {
+  id: number;
+  title: string;
+  sourceBranch: string;
+  targetBranch: string;
+  url: string;
+}
+
+/**
+ * List all open PRs whose source branch matches the given branch name.
+ */
+export async function listPrsForBranch(
+  workspace: string,
+  repository: string,
+  sourceBranch: string
+): Promise<PrSummary[]> {
+  const creds = getBitbucketAuth();
+  if (!creds) return [];
+
+  const url =
+    `${creds.baseUrl}/rest/api/latest/projects/${workspace}` +
+    `/repos/${repository}/pull-requests?state=OPEN&limit=50`;
+
+  try {
+    const response = await fetch(url, { headers: creds.headers });
+    if (!response.ok) return [];
+
+    const data = (await response.json()) as Record<string, unknown>;
+    const values = Array.isArray(data.values) ? data.values : [];
+
+    const results: PrSummary[] = [];
+    for (const entry of values) {
+      if (!entry || typeof entry !== 'object') continue;
+      const pr = entry as Record<string, unknown>;
+      const fromRef = pr.fromRef as Record<string, unknown> | undefined;
+      const toRef = pr.toRef as Record<string, unknown> | undefined;
+      const branchId =
+        typeof fromRef?.displayId === 'string' ? fromRef.displayId : '';
+
+      if (branchId !== sourceBranch) continue;
+
+      const links = pr.links as Record<string, unknown> | undefined;
+      const selfLinks = Array.isArray(links?.self)
+        ? (links.self as Array<Record<string, unknown>>)
+        : [];
+      const prUrl =
+        selfLinks.length > 0 && typeof selfLinks[0].href === 'string'
+          ? selfLinks[0].href
+          : '';
+
+      results.push({
+        id: typeof pr.id === 'number' ? pr.id : 0,
+        title: typeof pr.title === 'string' ? pr.title : '',
+        sourceBranch: branchId,
+        targetBranch:
+          typeof toRef?.displayId === 'string' ? toRef.displayId : '',
+        url: prUrl,
+      });
+    }
+
+    return results;
+  } catch (err) {
+    logger.warn(`Error listing PRs for branch ${sourceBranch}: ${err}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Read test result comment from a PR (latest Yama/Jenkins summary)
+// ---------------------------------------------------------------------------
+
+export type TestResultStatus = 'passed' | 'failed' | 'unknown';
+
+/**
+ * Detect whether tests passed or failed on a PR by scanning its comments
+ * for Yama/Jenkins test summary indicators.
+ *
+ * Returns 'passed' if a summary comment shows no failures,
+ * 'failed' if a summary shows failures, or 'unknown' if no summary found.
+ */
+export async function getTestResultStatus(
+  workspace: string,
+  repository: string,
+  pullRequestId: string
+): Promise<TestResultStatus> {
+  const creds = getBitbucketAuth();
+  if (!creds) return 'unknown';
+
+  const url =
+    `${creds.baseUrl}/rest/api/latest/projects/${workspace}` +
+    `/repos/${repository}/pull-requests/${pullRequestId}/activities?limit=100`;
+
+  try {
+    const response = await fetch(url, { headers: creds.headers });
+    if (!response.ok) return 'unknown';
+
+    const data = (await response.json()) as Record<string, unknown>;
+    const values = Array.isArray(data.values) ? data.values : [];
+
+    // Walk activities newest-first (Bitbucket returns newest first)
+    for (const activity of values) {
+      if (!activity || typeof activity !== 'object') continue;
+      const act = activity as Record<string, unknown>;
+      if (act.action !== 'COMMENTED') continue;
+
+      const comment = act.comment as Record<string, unknown> | undefined;
+      const text = typeof comment?.text === 'string' ? comment.text : '';
+
+      // Yama/Jenkins test summary patterns
+      if (
+        text.includes('LOCAL TEST CASES SUMMARY') ||
+        text.includes('TEST SUMMARY REPORT')
+      ) {
+        // Check for failure indicators
+        if (
+          text.includes('Status: FAILED') ||
+          text.match(/❌\s*\*\*\d+\s+Failed\*\*/) ||
+          text.match(/Failed.*[1-9]\d*/)
+        ) {
+          return 'failed';
+        }
+        if (
+          text.includes('Status: PASSED') ||
+          text.includes('✅') ||
+          text.match(/Failed.*\b0\b/)
+        ) {
+          return 'passed';
+        }
+        return 'unknown';
+      }
+    }
+
+    return 'unknown';
+  } catch (err) {
+    logger.warn(`Error checking test results for PR #${pullRequestId}: ${err}`);
+    return 'unknown';
+  }
+}

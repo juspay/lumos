@@ -324,3 +324,75 @@ describe('isTestableSourceFile (via orchestrator internals)', () => {
     expect(isTestable('scripts/run-lumos.js')).toBe(false);
   });
 });
+
+// -- orchestrator: isLumosTestPr / buildTestBranchName ----------------------
+
+describe('isLumosTestPr (via orchestrator internals)', () => {
+  // Replicate the same logic used in orchestrator.ts
+  function isLumosTestPr(branch: string, title: string): boolean {
+    return (
+      branch.includes('-lumos-e2e') || title.toLowerCase().includes('lumos --')
+    );
+  }
+
+  it('detects Lumos test PR by branch suffix', () => {
+    expect(isLumosTestPr('test/BZ-1234-lumos-e2e', 'anything')).toBe(true);
+    expect(isLumosTestPr('test/BZ-2236-lumos-e2e', 'feat: something')).toBe(
+      true
+    );
+  });
+
+  it('detects Lumos test PR by title', () => {
+    expect(
+      isLumosTestPr(
+        'test/BZ-1234-something',
+        'test: lumos -- E2E tests for BZ-1234'
+      )
+    ).toBe(true);
+    expect(
+      isLumosTestPr('some-branch', 'test: lumos -- E2E tests for BZ-999')
+    ).toBe(true);
+  });
+
+  it('does not flag normal dev branches', () => {
+    expect(
+      isLumosTestPr('BZ-1234-add-settings', 'feat: add settings page')
+    ).toBe(false);
+    expect(
+      isLumosTestPr('fix/BZ-567-bug-fix', 'fix: correct rendering issue')
+    ).toBe(false);
+    expect(
+      isLumosTestPr('test/BZ-999-manual-tests', 'test: add manual tests')
+    ).toBe(false);
+  });
+});
+
+describe('buildTestBranchName (via orchestrator internals)', () => {
+  // Replicate logic from orchestrator.ts
+  function buildTestBranchName(devBranch: string): string | null {
+    const match = /([A-Z]+-\d+)/i.exec(devBranch);
+    const ticket = match ? match[1].toUpperCase() : undefined;
+    if (!ticket) return null;
+    return `test/${ticket}-lumos-e2e`;
+  }
+
+  it('builds correct test branch from BZ-* branch', () => {
+    expect(buildTestBranchName('BZ-2236-integrate-paginator')).toBe(
+      'test/BZ-2236-lumos-e2e'
+    );
+    expect(buildTestBranchName('feat/BZ-1234-add-settings')).toBe(
+      'test/BZ-1234-lumos-e2e'
+    );
+  });
+
+  it('returns null for branches without a Jira ticket', () => {
+    expect(buildTestBranchName('main')).toBeNull();
+    expect(buildTestBranchName('release')).toBeNull();
+    expect(buildTestBranchName('hotfix-quick-fix')).toBeNull();
+  });
+
+  it('is deterministic -- same dev branch always maps to same test branch', () => {
+    const devBranch = 'BZ-2236-integrate-paginator-in-datagrid-component';
+    expect(buildTestBranchName(devBranch)).toBe('test/BZ-2236-lumos-e2e');
+  });
+});

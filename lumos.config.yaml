@@ -1,8 +1,8 @@
 version: 1
 
 ai:
-  provider: 'litellm'
-  model: 'glm-latest'
+  provider: 'vertex'
+  model: 'claude-sonnet-4-5@20250929'
   temperature: 0.1
   maxTokens: 30000
   timeout: '5m'

@@ -66,6 +66,7 @@ function getArgValue(flag: string): string | undefined {
 const prId = getArgValue('--pr');
 const branch = getArgValue('--branch');
 const testType = getArgValue('--type') ?? 'mock';
+const repoRoot = getArgValue('--repo-root');
 
 if (!prId && !branch) {
   console.error(
@@ -107,6 +108,7 @@ async function main() {
     type: testType,
     dryRun,
     createPr: isCreatePr,
+    ...(repoRoot ? { targetRepoRoot: repoRoot } : {}),
   });
 
   console.log('');

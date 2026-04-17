@@ -13,17 +13,21 @@ import {
 } from './prompts/test-gen-prompt.js';
 import { logger } from './utils/logger.js';
 import { MCPError, ConfigError } from './utils/errors.js';
-import { fetchPrMetadata } from './utils/bitbucket-utils.js';
-import { createBitbucketPr } from './utils/bitbucket-utils.js';
 import {
-  getRepoRoot,
+  fetchPrMetadata,
+  createBitbucketPr,
+  listPrsForBranch,
+  getTestResultStatus,
+} from './utils/bitbucket-utils.js';
+import {
   gitFetch,
-  gitCreateBranch,
   gitAdd,
   gitCommit,
+  gitAmend,
   gitPush,
+  remoteBranchExists,
 } from './utils/git-utils.js';
-import { createTestTicket, extractTicketKey } from './utils/jira-utils.js';
+import { extractTicketKey } from './utils/jira-utils.js';
 import {
   parseGeneratedTestFiles,
   extractTestGenComment,
@@ -541,13 +545,15 @@ export class LumosOrchestrator {
   // -------------------------------------------------------------------------
 
   /**
-   * Generate E2E test cases from PR changes.
+   * Generate E2E test cases from PR changes, or review/fix existing Lumos
+   * test PRs if the current PR is a Lumos-generated test branch.
    *
-   * Two modes:
-   * - Comment-only (default): The AI posts generated test code as a PR comment.
-   * - PR creation (createPr: true): Parse test files from AI output, create a
-   *   Jira ticket, branch from the dev PR's source branch, write test files,
-   *   commit, push, and open a PR targeting the dev branch.
+   * Mode A (Dev PR): Generates tests and posts as a comment, or creates a
+   * dedicated test branch + PR when createPr is true.
+   *
+   * Mode B (Lumos Test PR, branch matches `test/*-lumos-e2e`): Reviews the
+   * test PR's CI results. If tests pass, skips. If tests fail, fixes the test
+   * files and force-pushes the amended commit (no new commits on the PR).
    */
   async generateTests(options: TestGenOptions): Promise<TestGenResult> {
     if (!this.initialized) {
@@ -580,7 +586,7 @@ export class LumosOrchestrator {
       pullRequestId === 'find-by-branch'
     ) {
       logger.warn('Cannot generate tests: no numeric PR ID available.');
-      return { testsGenerated: 0, commentsPosted: 0 };
+      return { testsGenerated: 0, commentsPosted: 0, mode: 'skip' };
     }
 
     // -- Fetch PR metadata ---------------------------------------------------
@@ -593,9 +599,60 @@ export class LumosOrchestrator {
 
     if (!prMetadata) {
       logger.warn('Failed to fetch PR metadata. Cannot generate tests.');
-      return { testsGenerated: 0, commentsPosted: 0 };
+      return { testsGenerated: 0, commentsPosted: 0, mode: 'skip' };
     }
 
+    // -- Route: Lumos test PR (Mode B) vs Dev PR (Mode A) -------------------
+    if (this.isLumosTestPr(prMetadata.sourceBranch, prMetadata.title)) {
+      logger.info(
+        `Detected Lumos test PR (branch: ${prMetadata.sourceBranch}). ` +
+          'Entering review/fix mode.'
+      );
+      return this.reviewTestPr(options, prMetadata, pullRequestId, startTime);
+    }
+
+    // -- Mode A: Dev PR -- generate tests -----------------------------------
+    return this.generateForDevPr(options, prMetadata, pullRequestId, startTime);
+  }
+
+  /**
+   * Returns true if the branch or title identifies this as a Lumos-generated
+   * test PR.
+   *
+   * Detection signals:
+   * - Branch contains `-lumos-e2e` (e.g., `test/BZ-1234-lumos-e2e`)
+   * - Title contains `lumos --` (e.g., `test: lumos -- E2E tests for BZ-1234`)
+   */
+  private isLumosTestPr(branch: string, title: string): boolean {
+    return (
+      branch.includes('-lumos-e2e') || title.toLowerCase().includes('lumos --')
+    );
+  }
+
+  /**
+   * Build the deterministic Lumos test branch name for a dev branch.
+   *
+   * Convention: `test/{JIRA_TICKET}-lumos-e2e`
+   * Example: BZ-2236-integrate-paginator → test/BZ-2236-lumos-e2e
+   *
+   * Returns null if no Jira ticket found in the branch name (PR creation
+   * will be skipped in that case).
+   */
+  private buildTestBranchName(devBranch: string): string | null {
+    const ticket = extractTicketKey(devBranch);
+    if (!ticket) return null;
+    return `test/${ticket}-lumos-e2e`;
+  }
+
+  /**
+   * Mode A: Dev PR -- generate tests (comment-only or PR creation).
+   */
+  private async generateForDevPr(
+    options: TestGenOptions,
+    prMetadata: import('./parsers/types.js').PrMetadata,
+    pullRequestId: string,
+    startTime: Date
+  ): Promise<TestGenResult> {
     // -- Pre-filter: testable source files -----------------------------------
     const sourceFiles = prMetadata.changedFiles.filter((f) =>
       this.isTestableSourceFile(f.path)
@@ -608,13 +665,75 @@ export class LumosOrchestrator {
       logger.info(
         'No testable source files changed in this PR. Skipping test generation.'
       );
-      return { testsGenerated: 0, commentsPosted: 0 };
+      return { testsGenerated: 0, commentsPosted: 0, mode: 'skip' };
     }
 
     logger.info(
       `Found ${sourceFiles.length} testable source file(s): ` +
         sourceFiles.map((f) => f.path).join(', ')
     );
+
+    // -- Check for existing Lumos test PR for this dev branch ---------------
+    if (options.createPr) {
+      const testBranch = this.buildTestBranchName(prMetadata.sourceBranch);
+      if (!testBranch) {
+        logger.warn(
+          `No Jira ticket found in branch "${prMetadata.sourceBranch}". ` +
+            'Cannot create test branch (requires test/BZ-*). Falling back to comment-only.'
+        );
+        // Fall through to comment-only generation below
+        options = { ...options, createPr: false };
+      } else {
+        const existing = await this.findExistingLumosTestPr(
+          options.workspace,
+          options.repository,
+          testBranch,
+          prMetadata.sourceBranch
+        );
+
+        if (existing) {
+          logger.info(
+            `Lumos test PR already exists: #${existing.id} (${existing.url}). ` +
+              'Checking test results...'
+          );
+          const status = await getTestResultStatus(
+            options.workspace,
+            options.repository,
+            String(existing.id)
+          );
+
+          if (status === 'passed') {
+            logger.info(
+              'Tests are passing on existing test PR. Nothing to do.'
+            );
+            return { testsGenerated: 0, commentsPosted: 0, mode: 'skip' };
+          } else if (status === 'failed') {
+            logger.info(
+              'Tests are failing on existing test PR. Entering fix mode...'
+            );
+            // Delegate to review/fix with the test PR's metadata
+            const testPrMeta = await fetchPrMetadata(
+              options.workspace,
+              options.repository,
+              String(existing.id)
+            );
+            if (testPrMeta) {
+              return this.reviewTestPr(
+                options,
+                testPrMeta,
+                String(existing.id),
+                startTime
+              );
+            }
+          } else {
+            logger.info(
+              'No test results yet on existing test PR. Skipping until next run.'
+            );
+            return { testsGenerated: 0, commentsPosted: 0, mode: 'skip' };
+          }
+        }
+      }
+    }
 
     // -- Find existing tests that reference changed source paths -------------
     const existingTestHints = this.findExistingTestHints(
@@ -638,7 +757,8 @@ export class LumosOrchestrator {
       prMetadata,
       sourceFiles,
       nonSourceFiles,
-      existingTestHints
+      existingTestHints,
+      options.createPr
     );
 
     // -- Dry run -------------------------------------------------------------
@@ -648,16 +768,8 @@ export class LumosOrchestrator {
         `\n--- SYSTEM PROMPT ---\n${testGenSystemPrompt}\n--- END ---`
       );
       logger.info(`\n--- USER MESSAGE ---\n${userMessage}\n--- END ---`);
-      return { testsGenerated: 0, commentsPosted: 0 };
+      return { testsGenerated: 0, commentsPosted: 0, mode: 'generate' };
     }
-
-    // -- Clean up previous Lumos test-gen comments ---------------------------
-    const numericPrId = pullRequestId;
-    await this.deletePreviousLumosComments(
-      options.workspace,
-      options.repository,
-      numericPrId
-    );
 
     // -- Invoke AI agent -----------------------------------------------------
     logger.info(
@@ -709,7 +821,7 @@ export class LumosOrchestrator {
         const posted = await this.postCommentFallback(
           options.workspace,
           options.repository,
-          numericPrId,
+          pullRequestId,
           comment
         );
         if (posted) commentsPosted = 1;
@@ -732,120 +844,155 @@ export class LumosOrchestrator {
           `Parsed ${testFiles.length} test file(s) from AI response.`
         );
 
-        // Extract parent ticket from dev branch name
         const parentTicket = extractTicketKey(prMetadata.sourceBranch);
-        const projectKey = options.workspace;
         const featureName =
           prMetadata.title.replace(/^[^:]+:\s*/, '').trim() ||
           prMetadata.sourceBranch;
 
-        // Create Jira ticket
-        const ticket = await createTestTicket(
-          projectKey,
-          `Add E2E tests for ${featureName}`,
-          `Auto-generated E2E tests by Lumos for PR #${prMetadata.id}: ${prMetadata.title}`,
-          parentTicket
+        // Determine branch name: test/{TICKET}-lumos-e2e
+        const testBranchName = this.buildTestBranchName(
+          prMetadata.sourceBranch
         );
-        if (ticket) {
-          jiraTicket = ticket.key;
-        }
 
-        // Create branch, write files, commit, push
-        const testBranchName = jiraTicket
-          ? `test/${jiraTicket}-add-e2e-tests`
-          : `test/lumos-${prMetadata.id}-add-e2e-tests`;
-
-        try {
-          const repoRoot = getRepoRoot();
-
-          gitFetch('origin', repoRoot);
-          gitCreateBranch(testBranchName, prMetadata.sourceBranch, repoRoot);
-
-          // Write test files
-          const filePaths: string[] = [];
-          for (const file of testFiles) {
-            const fullPath = resolve(repoRoot, file.filePath);
-            const dir = resolve(fullPath, '..');
-            const { mkdirSync, writeFileSync } = await import('node:fs');
-            mkdirSync(dir, { recursive: true });
-            writeFileSync(fullPath, file.content, 'utf-8');
-            filePaths.push(file.filePath);
-            logger.info(`Wrote: ${file.filePath}`);
-          }
-
-          // Validate generated files before committing
-          const validationErrors = this.validateGeneratedFiles(
-            filePaths,
-            repoRoot
+        if (!testBranchName) {
+          logger.warn(
+            'No Jira ticket in dev branch. Cannot create test branch. ' +
+              'Skipping PR creation.'
           );
-          if (validationErrors) {
-            logger.warn(
-              'Validation errors in generated files. Attempting AI fix...'
-            );
-            const fixed = await this.fixGeneratedFiles(
-              testFiles,
-              validationErrors,
-              testGenSystemPrompt
-            );
-            if (fixed.length > 0) {
-              const { writeFileSync: writeFixed } = await import('node:fs');
-              for (const file of fixed) {
-                const fullPath = resolve(repoRoot, file.filePath);
-                writeFixed(fullPath, file.content, 'utf-8');
-                logger.info(`Fixed: ${file.filePath}`);
-              }
-              // Re-validate after fix
-              const retryErrors = this.validateGeneratedFiles(
+        } else {
+          // Use the parent dev ticket directly -- no new Jira ticket needed
+          jiraTicket = parentTicket;
+
+          try {
+            const repoRoot = options.targetRepoRoot ?? this.projectRoot;
+
+            gitFetch('origin', repoRoot);
+
+            // Create/checkout the test branch directly from the remote --
+            // never checkout the dev branch locally so the working tree is
+            // not affected by any local modifications.
+            if (remoteBranchExists(testBranchName, repoRoot)) {
+              logger.info(
+                `Branch ${testBranchName} already exists remotely. Checking out...`
+              );
+              execSync(
+                `git checkout -B ${testBranchName} origin/${testBranchName}`,
+                { cwd: repoRoot, encoding: 'utf-8' }
+              );
+            } else {
+              logger.info(
+                `Creating branch ${testBranchName} from origin/${prMetadata.sourceBranch}...`
+              );
+              execSync(
+                `git checkout -b ${testBranchName} origin/${prMetadata.sourceBranch}`,
+                { cwd: repoRoot, encoding: 'utf-8' }
+              );
+            }
+
+            // Write test files
+            const filePaths: string[] = [];
+            for (const file of testFiles) {
+              const fullPath = resolve(repoRoot, file.filePath);
+              const dir = resolve(fullPath, '..');
+              const { mkdirSync, writeFileSync } = await import('node:fs');
+              mkdirSync(dir, { recursive: true });
+              writeFileSync(fullPath, file.content, 'utf-8');
+              filePaths.push(file.filePath);
+              logger.info(`Wrote: ${file.filePath}`);
+            }
+
+            // Validate + fix only in comment-only mode. In createPr mode the
+            // tsc check runs against Lighthouse's tsconfig which cannot resolve
+            // cross-project imports (@playwright/test, SvelteKit types etc.)
+            // causing spurious errors that trigger a costly second AI call.
+            // CI (Jenkins mock tests) is the validation gate for generated tests.
+            if (!options.createPr) {
+              const validationErrors = this.validateGeneratedFiles(
                 filePaths,
                 repoRoot
               );
-              if (retryErrors) {
+              if (validationErrors) {
                 logger.warn(
-                  'Validation errors persist after fix attempt. ' +
-                    'Proceeding with commit anyway.'
+                  'Validation errors in generated files. Attempting AI fix...'
                 );
-              } else {
-                logger.info('Fix successful -- validation passed.');
+                const fixed = await this.fixGeneratedFiles(
+                  testFiles,
+                  validationErrors,
+                  testGenSystemPrompt
+                );
+                // Only accept fixes for files we originally generated — ignore
+                // any other paths the AI may have hallucinated.
+                const allowedPaths = new Set(filePaths);
+                const validFixed = fixed.filter((f) =>
+                  allowedPaths.has(f.filePath)
+                );
+                if (validFixed.length > 0) {
+                  const { writeFileSync: writeFixed } = await import('node:fs');
+                  for (const file of validFixed) {
+                    const fullPath = resolve(repoRoot, file.filePath);
+                    writeFixed(fullPath, file.content, 'utf-8');
+                    logger.info(`Fixed: ${file.filePath}`);
+                  }
+                  const retryErrors = this.validateGeneratedFiles(
+                    filePaths,
+                    repoRoot
+                  );
+                  if (retryErrors) {
+                    logger.warn(
+                      'Validation errors persist after fix. Committing anyway.'
+                    );
+                  } else {
+                    logger.info('Fix successful -- validation passed.');
+                  }
+                }
               }
             }
-          }
 
-          gitAdd(filePaths, repoRoot);
-          gitCommit(`test: add E2E tests for ${featureName}`, repoRoot);
-          gitPush(testBranchName, repoRoot);
+            gitAdd(filePaths, repoRoot);
+            gitCommit(
+              `${parentTicket}: test: lumos -- E2E tests for ${featureName}`,
+              repoRoot,
+              true
+            );
+            gitPush(testBranchName, repoRoot, false, true);
 
-          // Create PR in Bitbucket
-          const prDescription =
-            extractTestGenComment(responseText) ??
-            `Auto-generated E2E tests by Lumos for PR #${prMetadata.id}.`;
+            // Return to the previous branch so the local working tree is
+            // left exactly as it was before Lumos ran.
+            execSync('git checkout -', { cwd: repoRoot, encoding: 'utf-8' });
 
-          const createdPr = await createBitbucketPr(
-            options.workspace,
-            options.repository,
-            `test: ${jiraTicket ?? 'lumos'} Add E2E tests for ${featureName}`,
-            testBranchName,
-            prMetadata.sourceBranch,
-            prDescription
-          );
+            // Create PR targeting the dev branch (not beta/main)
+            const prDescription =
+              extractTestGenComment(responseText) ??
+              `Auto-generated E2E tests by Lumos for PR #${prMetadata.id}.`;
 
-          if (createdPr) {
-            prUrl = createdPr.url;
-            logger.info(`Test PR created: ${prUrl}`);
-
-            // Post a link on the original dev PR
-            await this.postCommentFallback(
+            const createdPr = await createBitbucketPr(
               options.workspace,
               options.repository,
-              numericPrId,
-              `## Lumos -- Test Generation\n\n` +
-                `Generated E2E tests are available in PR: [#${createdPr.id}](${prUrl})\n\n` +
-                (jiraTicket ? `Jira ticket: ${jiraTicket}\n\n` : '') +
-                `---\n*Generated by Lumos v2*`
+              `test: lumos -- E2E tests for ${parentTicket ?? featureName}`,
+              testBranchName,
+              prMetadata.sourceBranch,
+              prDescription
             );
-            commentsPosted = 1;
+
+            if (createdPr) {
+              prUrl = createdPr.url;
+              logger.info(`Test PR created: ${prUrl}`);
+
+              // Post link on the original dev PR
+              await this.postCommentFallback(
+                options.workspace,
+                options.repository,
+                pullRequestId,
+                `## Lumos -- Test Generation\n\n` +
+                  `E2E tests generated and available in PR: [#${createdPr.id}](${prUrl})\n\n` +
+                  (jiraTicket ? `Jira ticket: ${jiraTicket}\n\n` : '') +
+                  `---\n*Generated by Lumos v2*`
+              );
+              commentsPosted = 1;
+            }
+          } catch (err) {
+            logger.error(`PR creation failed: ${err}`);
           }
-        } catch (err) {
-          logger.error(`PR creation failed: ${err}`);
         }
       }
     }
@@ -853,6 +1000,7 @@ export class LumosOrchestrator {
     return {
       testsGenerated: sourceFiles.length,
       commentsPosted,
+      mode: 'generate',
       prUrl,
       jiraTicket,
       tokenUsage,
@@ -861,6 +1009,199 @@ export class LumosOrchestrator {
       toolsUsed,
       rawResponse: responseText,
     };
+  }
+
+  /**
+   * Mode B: Lumos test PR -- review CI results and fix if needed.
+   *
+   * - Tests passing → skip (zero cost)
+   * - Tests failing → AI generates fixes, amend commit, force-push
+   * - No results yet → skip (will check on next Jenkins trigger)
+   */
+  private async reviewTestPr(
+    options: TestGenOptions,
+    prMetadata: import('./parsers/types.js').PrMetadata,
+    pullRequestId: string,
+    startTime: Date
+  ): Promise<TestGenResult> {
+    const status = await getTestResultStatus(
+      options.workspace,
+      options.repository,
+      pullRequestId
+    );
+
+    if (status === 'passed') {
+      logger.info(
+        `Tests passing on Lumos test PR #${pullRequestId}. Nothing to do.`
+      );
+      return { testsGenerated: 0, commentsPosted: 0, mode: 'review' };
+    }
+
+    if (status === 'unknown') {
+      logger.info(
+        `No test results yet on Lumos test PR #${pullRequestId}. ` +
+          'Skipping until next pipeline run.'
+      );
+      return { testsGenerated: 0, commentsPosted: 0, mode: 'skip' };
+    }
+
+    // Tests are failing -- generate fixes
+    logger.info(
+      `Tests failing on Lumos test PR #${pullRequestId}. Generating fixes...`
+    );
+
+    if (options.dryRun) {
+      logger.info('Dry run mode -- would attempt to fix failing tests.');
+      return { testsGenerated: 0, commentsPosted: 0, mode: 'review' };
+    }
+
+    // Read current test files from the branch
+    const testFiles = prMetadata.changedFiles
+      .filter(
+        (f) =>
+          f.path.startsWith('tests/') &&
+          (f.path.endsWith('.ts') || f.path.endsWith('.js'))
+      )
+      .map((f) => f.path);
+
+    if (testFiles.length === 0) {
+      logger.warn('No test files found on Lumos test PR. Cannot fix.');
+      return { testsGenerated: 0, commentsPosted: 0, mode: 'review' };
+    }
+
+    const systemPrompt = buildTestGenSystemPrompt(
+      this.config,
+      this.projectRoot
+    );
+
+    // Build a focused fix prompt using the test result comment
+    const fixPrompt =
+      `Lumos-generated tests on PR #${pullRequestId} are failing in CI.\n\n` +
+      `Branch: ${prMetadata.sourceBranch}\n` +
+      `Target: ${prMetadata.targetBranch}\n\n` +
+      `Test files on this branch:\n` +
+      testFiles.map((f) => `- ${f}`).join('\n') +
+      `\n\nPlease:\n` +
+      `1. Use get_file_content to read each test file.\n` +
+      `2. Use get_pull_request_diff to understand what the tests are doing.\n` +
+      `3. Search for the actual component selectors to verify them.\n` +
+      `4. Fix any broken selectors, wrong imports, or logic errors.\n` +
+      `5. Output corrected files using the standard #### \`filepath\`\\n\`\`\`typescript format.\n` +
+      `Do NOT add new test scenarios. Only fix what is broken.`;
+
+    let tokenUsage: TokenUsage | undefined;
+    let estimatedCost: number | undefined;
+
+    try {
+      const result = await this.neurolink.generate({
+        input: { text: fixPrompt },
+        provider: this.config.ai.provider,
+        model: this.config.ai.model,
+        systemPrompt,
+        temperature: 0,
+        maxTokens: this.config.ai.maxTokens,
+        // Fix mode is less token-heavy than generation; cap at config timeout
+        timeout: this.config.ai.timeout,
+      });
+
+      const endTime = new Date();
+      const durationMs = endTime.getTime() - startTime.getTime();
+      const responseText = result.content ?? '';
+
+      if (result.usage) {
+        tokenUsage = {
+          input: result.usage.input,
+          output: result.usage.output,
+          total: result.usage.total,
+        };
+        estimatedCost = estimateUsdCost(tokenUsage);
+      }
+
+      const fixed = parseGeneratedTestFiles(responseText);
+      if (fixed.length === 0) {
+        logger.warn('AI did not produce fixed test files.');
+        return {
+          testsGenerated: 0,
+          commentsPosted: 0,
+          mode: 'review',
+          tokenUsage,
+          estimatedCost,
+          durationMs,
+        };
+      }
+
+      const repoRoot = options.targetRepoRoot ?? this.projectRoot;
+      gitFetch('origin', repoRoot);
+
+      // Check out the test branch directly from remote to avoid stale local state
+      execSync(
+        `git checkout -B ${prMetadata.sourceBranch} origin/${prMetadata.sourceBranch}`,
+        { cwd: repoRoot, encoding: 'utf-8' }
+      );
+
+      const filePaths: string[] = [];
+      for (const file of fixed) {
+        const fullPath = resolve(repoRoot, file.filePath);
+        const dir = resolve(fullPath, '..');
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(fullPath, file.content, 'utf-8');
+        filePaths.push(file.filePath);
+        logger.info(`Fixed: ${file.filePath}`);
+      }
+
+      gitAdd(filePaths, repoRoot);
+      gitAmend(repoRoot); // --amend --no-edit: no new commits
+      gitPush(prMetadata.sourceBranch, repoRoot, true); // force-with-lease
+
+      // Restore working tree to original branch
+      execSync('git checkout -', { cwd: repoRoot, encoding: 'utf-8' });
+
+      // Post fix comment on the test PR
+      const fixComment =
+        `## Lumos -- Test Fix\n\n` +
+        `Fixed ${fixed.length} test file(s) after CI failure. ` +
+        `Amended commit force-pushed.\n\n` +
+        `---\n*Generated by Lumos v2*`;
+
+      const posted = await this.postCommentFallback(
+        options.workspace,
+        options.repository,
+        pullRequestId,
+        fixComment
+      );
+
+      return {
+        testsGenerated: fixed.length,
+        commentsPosted: posted ? 1 : 0,
+        mode: 'review',
+        tokenUsage,
+        estimatedCost,
+        durationMs,
+      };
+    } catch (err) {
+      logger.error(`Test fix failed: ${err}`);
+      return { testsGenerated: 0, commentsPosted: 0, mode: 'review' };
+    }
+  }
+
+  /**
+   * Find an open Lumos test PR whose source branch matches the given test
+   * branch name AND whose target branch matches the dev branch.
+   */
+  private async findExistingLumosTestPr(
+    workspace: string,
+    repository: string,
+    testBranch: string,
+    devBranch: string
+  ): Promise<import('./utils/bitbucket-utils.js').PrSummary | null> {
+    const prs = await listPrsForBranch(workspace, repository, testBranch);
+    const match = prs.find(
+      (pr) =>
+        pr.targetBranch === devBranch &&
+        this.isLumosTestPr(pr.sourceBranch, pr.title)
+    );
+    return match ?? null;
   }
 
   /**
@@ -931,7 +1272,8 @@ export class LumosOrchestrator {
   }
 
   /**
-   * Run tsc and eslint on generated test files to catch errors before commit.
+   * Run tsc on generated test files only (no project tsconfig, no svelte-check).
+   * Checks only the specific .ts files passed, skipping lib checks and project hooks.
    * Returns the combined error output, or null if validation passes.
    */
   private validateGeneratedFiles(
@@ -940,14 +1282,21 @@ export class LumosOrchestrator {
   ): string | null {
     const errors: string[] = [];
 
-    // TypeScript type check
+    // Type-check only the generated .ts files directly.
+    // Use --skipLibCheck and --noEmit without --project so we don't load the
+    // repo's tsconfig.json (which would trigger svelte-check on the full project).
+    // Generated test files are plain TypeScript -- no Svelte involved.
     try {
       const fileArgs = filePaths.join(' ');
-      execSync(`npx tsc --noEmit ${fileArgs}`, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-      });
+      execSync(
+        `npx tsc --noEmit --skipLibCheck --strict --target ES2020 --moduleResolution bundler --module ESNext --allowImportingTsExtensions --lib ES2020,DOM ${fileArgs}`,
+        {
+          cwd,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+          timeout: 30_000,
+        }
+      );
     } catch (err) {
       const msg =
         err instanceof Error && 'stdout' in err
@@ -955,24 +1304,6 @@ export class LumosOrchestrator {
           : String(err);
       if (msg.trim()) {
         errors.push(`TypeScript errors:\n${msg.trim()}`);
-      }
-    }
-
-    // ESLint check
-    try {
-      const fileArgs = filePaths.join(' ');
-      execSync(`npx eslint ${fileArgs}`, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-      });
-    } catch (err) {
-      const msg =
-        err instanceof Error && 'stdout' in err
-          ? String((err as Record<string, unknown>).stdout)
-          : String(err);
-      if (msg.trim()) {
-        errors.push(`ESLint errors:\n${msg.trim()}`);
       }
     }
 

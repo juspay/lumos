@@ -6,44 +6,40 @@ content below this comment block. Keep under 60 lines. -->
 
 ## Current Focus
 
-Lumos v2 test generation feature complete and tested.
-Branch: `feat/test-generation-v2` (PR ready for review).
+Lumos PR-creation git flow refined. Branch: `feat/test-gen-pr-creation`.
+Lighthouse Jenkins integration in progress.
 
 ### What Changed (this session)
 
-- **Test generation v2 implemented**: `generateTests()` method on `LumosOrchestrator`
-  that analyzes PR diffs and generates Playwright E2E test files via agentic AI.
-- **9-step workflow with test intent planner**: AI must output a structured test
-  plan (scenarios, selectors, mock data) BEFORE generating code (step 4).
-- **Patterns template**: `templates/test-generation-patterns.md` (434 lines) with
-  Lighthouse test conventions (thin spec + thick handler, data-pw selectors,
-  setupBetaInterception, isMockingEnabled, Promise.race patterns, etc.).
-- **Bitbucket REST API utils**: `fetchPrMetadata()`, `fetchPrChangedFiles()`,
-  `createBitbucketPr()` in `src/utils/bitbucket-utils.ts`.
-- **Bug fix**: `fetchPrChangedFiles` path parsing -- `typeof pathObj.toString === 'function'`
-  always matched `Object.prototype.toString`, producing garbage paths. Fixed to
-  check `typeof rawToString === 'string'`.
-- **PR creation mode**: Parse test files from AI output, validate with tsc/eslint,
-  create Jira ticket, branch from source, commit, push, open PR.
-- **Existing test pre-lookup**: Maps changed source paths to likely test
-  directories (e.g., `src/routes/(app)/settings/` -> `tests/routes/settings/`).
-- **21 new unit tests** in `test/test-generation.test.ts`.
-- **Live tested**: PR #4816 (DataGrid pagination) -- 6 test scenarios generated,
-  comment posted (255s, 1.6M tokens, $4.93, 9 MCP tool calls).
-- **Local test script**: `scripts/test-gen-local.ts` for testing generateTests()
-  with `--pr`, `--live`, `--create-pr` flags.
+- **`targetRepoRoot` option**: Added to `TestGenOptions`. When Lumos runs from
+  its own package directory (local dev), callers pass `targetRepoRoot` pointing
+  to the Lighthouse checkout. In Jenkins, `process.cwd()` IS the Lighthouse
+  checkout so no override needed.
+- **Branch creation refactor**: Replaced `gitCreateBranch()` (which checked out
+  the dev branch locally) with direct `execSync('git checkout -b/-B ...')` from
+  `origin/<branch>`. Working tree is never contaminated by the dev branch.
+- **`git fetch --all`**: Changed from `git fetch <remote>` so untracked remote
+  branches are always fetched before checkout.
+- **`--no-verify` on commit/push**: Added to skip Lighthouse pre-commit hooks
+  when Lumos commits generated test files in Jenkins.
+- **`git checkout -` after push**: Restores working tree to original branch
+  after PR creation, leaving the repo clean.
+- **No Jira ticket creation**: Removed `createTestTicket()` call. Test branch
+  commit message uses the parent dev ticket directly
+  (`${parentTicket}: test: lumos -- E2E tests for ${featureName}`).
+- **Skip tsc validation in createPr mode**: Cross-project imports (SvelteKit,
+  Playwright) cause false tsc errors in Lumos' environment. CI is the gate.
+- **`lumos.config.yaml` reset to vertex**: Provider `vertex`, model
+  `claude-sonnet-4-5@20250929` (same as Jenkins default).
 
 ### Recent Decisions
 
-- **Single agentic call (not two-pass)**: AI reads diffs, plans, generates, and
-  posts in one `generate()` call. Test intent planner is a prompt step, not a
-  separate API call.
-- **Lean prompt + dynamic MCP tool use**: System prompt has patterns (~8k tokens),
-  AI fetches diffs/source/tests on-demand via MCP (~20-40k tokens per run).
-- **Skip RAG for test similarity**: Static test file index is sufficient. AI uses
-  `search_code` MCP tool + existing test hints from orchestrator pre-lookup.
-- **tsc/eslint validation only in --create-pr mode**: Comment-only mode relies on
-  AI self-review. PR creation mode validates before committing with fix-loop.
+- **No Jira ticket for test PRs**: Parent dev ticket is sufficient reference.
+  Auto-creation caused noise and required Jira credentials in more places.
+- **Skip validation in createPr mode**: tsc cannot resolve cross-project types
+  from inside Lumos. Generated tests are validated by Jenkins mock test run.
+- **`targetRepoRoot` over `getRepoRoot()`**: Removed reliance on env var
+  `WORKSPACE` or walking up to find `.git`. Caller always knows the repo root.
 
 ## npm Version History
 
@@ -56,13 +52,13 @@ Branch: `feat/test-generation-v2` (PR ready for review).
 | 1.1.2   | Duplicate comment fix (MCP verification, PR ID) | OIDC auto     |
 | 1.1.3   | Orchestrator cleanup, no-action signal fix      | OIDC auto     |
 | 1.2.0   | PR lookup by branch, safe-to-merge, prior-run   | OIDC auto     |
-| 1.3.0   | Test generation v2 (pending merge)              | --            |
+| 1.3.0   | Test generation v2                              | OIDC auto     |
+| 1.4.0   | PR-creation git flow refinements (pending)      | --            |
 
 ## Next Steps
 
-1. Merge `feat/test-generation-v2` PR to release
-2. Set up Lighthouse integration: copy patterns template to `memory-bank/`,
-   add `testGeneration` config to `lumos.config.yaml`, add `--generate-tests`
-   flag to `scripts/run-lumos.js`
-3. Add Jenkinsfile stage for test generation on PR builds
-4. Monitor token costs and quality across real PRs
+1. Push `feat/test-gen-pr-creation`, create PR to release, publish v1.4.0
+2. Lighthouse: add `scripts/run-lumos-generate.js`, `lumos:generate` npm script
+3. Lighthouse Jenkinsfile: add `GENERATE_MOCK_TESTS` / `GENERATE_NONMOCK_TESTS`
+   params and unified `Lumos Generate Tests` stage
+4. Test end-to-end in Jenkins with `GENERATE_MOCK_TESTS=true` on a real PR

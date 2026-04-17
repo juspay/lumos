@@ -32,6 +32,7 @@ export type {
   SessionData,
   TestGenOptions,
   TestGenResult,
+  TestGenMode,
 } from './parsers/types.js';
 export type {
   FailureClassificationType,

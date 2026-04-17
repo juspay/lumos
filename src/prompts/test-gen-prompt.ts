@@ -255,7 +255,8 @@ export function buildTestGenUserMessage(
   prMetadata: PrMetadata,
   sourceFiles: ChangedFile[],
   nonSourceFiles: ChangedFile[],
-  existingTestHints?: string[]
+  existingTestHints?: string[],
+  createPr?: boolean
 ): string {
   const lines: string[] = [];
 
@@ -294,6 +295,23 @@ export function buildTestGenUserMessage(
       lines.push(`- \`${hint}\``);
     }
     lines.push('');
+  }
+
+  if (createPr) {
+    lines.push(
+      '\n**OUTPUT MODE: PR CREATION**\n' +
+        'You are running in PR-creation mode. Follow workflow steps 1-8 as normal.\n' +
+        'For step 9: DO NOT call add_comment. Instead, output ONLY the raw file ' +
+        'contents as your text response using EXACTLY this format for each file ' +
+        '(no preamble, no explanation, just the blocks):\n\n' +
+        '#### `{file/path.ts}`\n' +
+        '```typescript\n' +
+        '{file content}\n' +
+        '```\n\n' +
+        'Lumos will write these files, commit them, push, create the PR, and post ' +
+        'the summary comment automatically. Your ONLY job in step 9 is to output ' +
+        'the file blocks as text. Nothing else.'
+    );
   }
 
   lines.push(

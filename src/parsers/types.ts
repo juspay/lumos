@@ -150,7 +150,23 @@ export interface TestGenOptions {
   dryRun?: boolean;
   /** When true, create a branch + PR instead of posting a comment */
   createPr?: boolean;
+  /**
+   * Root of the target repository where test files and git operations happen.
+   * Defaults to the project root passed to createLumos().
+   * Use this when running locally from the Lumos package dir but targeting
+   * a different repo (e.g. Lighthouse). In Jenkins this is unnecessary since
+   * process.cwd() is already the Lighthouse checkout.
+   */
+  targetRepoRoot?: string;
 }
+
+/**
+ * The mode in which generateTests() operated.
+ * - 'generate': Dev PR -- generated new tests (comment or PR creation)
+ * - 'review':   Lumos test PR -- reviewed existing tests, fixed if needed
+ * - 'skip':     Nothing to do (already passing, no testable files, etc.)
+ */
+export type TestGenMode = 'generate' | 'review' | 'skip';
 
 /**
  * Result returned from `LumosOrchestrator.generateTests()`.
@@ -160,6 +176,8 @@ export interface TestGenResult {
   testsGenerated: number;
   /** Number of comments posted to the PR */
   commentsPosted: number;
+  /** How the method operated */
+  mode: TestGenMode;
   /** URL of the created PR (only when createPr is true) */
   prUrl?: string;
   /** Jira ticket key created for the test work */

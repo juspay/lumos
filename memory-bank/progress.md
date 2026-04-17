@@ -139,7 +139,26 @@ in the Section Index. -->
   list_pull_requests, get_pull_request, get_file_content, search_files,
   search_code, add_comment
 
-## npm Publishing Configuration
+### Phase 11 -- PR-Creation Git Flow Refinements (branch: feat/test-gen-pr-creation)
+
+- **`targetRepoRoot`**: New optional field in `TestGenOptions`. Allows Lumos to
+  operate on a separate Lighthouse checkout (local dev), while Jenkins uses
+  `process.cwd()` naturally.
+- **Branch checkout refactor**: Replaced `gitCreateBranch()` with direct
+  `execSync('git checkout -b/-B ... origin/<branch>')`. Never checks out the
+  dev branch, keeping working tree clean.
+- **`git fetch --all`**: Ensures untracked remote branches are available.
+- **`--no-verify` on commit/push**: Skips Lighthouse pre-commit hooks during
+  AI-generated test file commits in Jenkins.
+- **`git checkout -` cleanup**: Restores original branch after push.
+- **No Jira ticket creation**: Removed `createTestTicket()`. Commit message
+  uses parent dev ticket key (`BZ-XXXX: test: lumos -- E2E tests for ...`).
+- **Skip tsc validation in createPr mode**: Avoids false errors from
+  cross-project imports (SvelteKit, Playwright) that Lumos cannot resolve.
+- **PR creation live test (PR #4895, BZ-2278)**: 9 testable source files, AI
+  generated tests, branch `test/BZ-2278-lumos-e2e` created and PR opened
+  (cost: ~$5.07 via litellm; git fetch --all fix applied after branch creation
+  failure on first attempt).
 
 **Status**: Complete. `@juspay/lumos` published to npm via automated OIDC
 pipeline. Versions: 1.0.0 (manual), 1.0.1 (MCP binary fix), 1.1.0
@@ -360,27 +379,27 @@ Key findings across all runs:
 
 ## Remaining Work Table
 
-| Task                               | Repo       | Status       | Blocked?      |
-| ---------------------------------- | ---------- | ------------ | ------------- |
-| npm publish config                 | lumos      | Done         | --            |
-| semantic-release version upgrade   | lumos      | Done         | --            |
-| npm self-upgrade crash fix         | lumos      | Done         | --            |
-| Manual first publish (v1.0.0)      | lumos      | Done         | --            |
-| MCP binary fix (local binary path) | lumos      | Done (1.0.1) | --            |
-| OIDC fix (npm@11 + release.yml)    | lumos      | Done (1.0.1) | --            |
-| Automated npm publish (v1.0.1)     | lumos      | Done         | --            |
-| find-by-branch PR discovery        | lumos      | Done (1.1.0) | --            |
-| Prompt size diagnostics            | lumos      | Done (1.1.1) | --            |
-| find-by-branch verification fix    | lumos      | Done (1.1.2) | --            |
-| Orchestrator cleanup + signal fix  | lumos      | Done (1.1.3) | --            |
-| PR lookup by branch + safe-merge   | lumos      | Done (1.2.0) | --            |
-| Test generation v2                 | lumos      | Done (PR)    | Merge pending |
-| Lighthouse patterns file           | lighthouse | Not started  | v2 merge      |
-| Lighthouse config + run-lumos.js   | lighthouse | Not started  | v2 merge      |
-| Jenkinsfile test-gen stage         | lighthouse | Not started  | v2 merge      |
-| Fix `hasCritical` false positive   | lumos      | Pending      | No            |
-| Two-pass analysis                  | lumos      | Not started  | No            |
-| Structured output wiring           | lumos      | Not started  | No            |
+| Task                               | Repo       | Status       | Blocked?     |
+| ---------------------------------- | ---------- | ------------ | ------------ |
+| npm publish config                 | lumos      | Done         | --           |
+| semantic-release version upgrade   | lumos      | Done         | --           |
+| npm self-upgrade crash fix         | lumos      | Done         | --           |
+| Manual first publish (v1.0.0)      | lumos      | Done         | --           |
+| MCP binary fix (local binary path) | lumos      | Done (1.0.1) | --           |
+| OIDC fix (npm@11 + release.yml)    | lumos      | Done (1.0.1) | --           |
+| Automated npm publish (v1.0.1)     | lumos      | Done         | --           |
+| find-by-branch PR discovery        | lumos      | Done (1.1.0) | --           |
+| Prompt size diagnostics            | lumos      | Done (1.1.1) | --           |
+| find-by-branch verification fix    | lumos      | Done (1.1.2) | --           |
+| Orchestrator cleanup + signal fix  | lumos      | Done (1.1.3) | --           |
+| PR lookup by branch + safe-merge   | lumos      | Done (1.2.0) | --           |
+| Test generation v2                 | lumos      | Done (1.3.0) | --           |
+| PR-creation git flow refinements   | lumos      | In progress  | PR pending   |
+| Lighthouse run-lumos-generate.js   | lighthouse | In progress  | lumos v1.4.0 |
+| Lighthouse Jenkinsfile integration | lighthouse | In progress  | lumos v1.4.0 |
+| Fix `hasCritical` false positive   | lumos      | Pending      | No           |
+| Two-pass analysis                  | lumos      | Not started  | No           |
+| Structured output wiring           | lumos      | Not started  | No           |
 
 ## Known Issues and Tech Debt
 

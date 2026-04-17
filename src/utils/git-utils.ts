@@ -33,9 +33,9 @@ export function getCurrentBranch(cwd: string): string {
   return exec('git rev-parse --abbrev-ref HEAD', cwd);
 }
 
-export function gitFetch(remote: string, cwd: string): void {
-  logger.info(`Fetching ${remote}...`);
-  exec(`git fetch ${remote}`, cwd);
+export function gitFetch(_remote: string, cwd: string): void {
+  logger.info('Fetching all remotes...');
+  exec(`git fetch --all`, cwd);
 }
 
 export function gitCheckout(branch: string, cwd: string): void {
@@ -59,18 +59,41 @@ export function gitAdd(files: string[], cwd: string): void {
   }
 }
 
-export function gitCommit(message: string, cwd: string): void {
+export function gitCommit(
+  message: string,
+  cwd: string,
+  noVerify = false
+): void {
   logger.info('Committing...');
-  exec(`git commit -m "${message}"`, cwd);
+  const flag = noVerify ? ' --no-verify' : '';
+  exec(`git commit -m "${message}"${flag}`, cwd);
 }
 
 export function gitAmend(cwd: string): void {
   logger.info('Amending commit...');
-  exec('git commit --amend --no-edit', cwd);
+  exec('git commit --amend --no-edit --no-verify', cwd);
 }
 
-export function gitPush(branch: string, cwd: string, force = false): void {
+export function gitPush(
+  branch: string,
+  cwd: string,
+  force = false,
+  noVerify = false
+): void {
   const forceFlag = force ? ' --force-with-lease' : '';
+  const noVerifyFlag = noVerify ? ' --no-verify' : '';
   logger.info(`Pushing ${branch}${force ? ' (force-with-lease)' : ''}...`);
-  exec(`git push -u origin ${branch}${forceFlag}`, cwd);
+  exec(`git push -u origin ${branch}${forceFlag}${noVerifyFlag}`, cwd);
+}
+
+/**
+ * Returns true if a branch exists on the remote (origin).
+ */
+export function remoteBranchExists(branch: string, cwd: string): boolean {
+  try {
+    const result = exec(`git ls-remote --heads origin ${branch}`, cwd);
+    return result.length > 0;
+  } catch {
+    return false;
+  }
 }

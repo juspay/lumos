@@ -1,5 +1,11 @@
-# Run staged-file linting/formatting first so typecheck sees the latest content
+# 1. Lint and format staged files first so subsequent steps see clean content
 npx lint-staged
 
-# Keep a basic project-wide safety net before commit
+# 2. Type-check (fast, catches type errors before compiling)
 pnpm typecheck
+
+# 3. Build (ensures the compiled output is coherent)
+pnpm build
+
+# 4. Run tests (validates behaviour against the built output)
+pnpm test
