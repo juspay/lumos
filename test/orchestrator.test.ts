@@ -432,16 +432,8 @@ describe('summarizeLumosComment', () => {
   });
 });
 
-describe('resolvePrIdByBranch', () => {
+describe('resolvePrIdByBranch (via listPrsForBranch)', () => {
   it('resolves branch to numeric PR ID', async () => {
-    const orchestrator = new LumosOrchestrator() as unknown as {
-      resolvePrIdByBranch: (
-        ws: string,
-        repo: string,
-        branch: string
-      ) => Promise<string | undefined>;
-    };
-
     process.env.BITBUCKET_BASE_URL = 'https://bitbucket.example.com';
     process.env.BITBUCKET_USERNAME = 'user';
     process.env.BITBUCKET_TOKEN = 'token';
@@ -451,35 +443,32 @@ describe('resolvePrIdByBranch', () => {
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
-            values: [{ id: 4638, title: 'Test PR' }],
+            values: [
+              {
+                id: 4638,
+                title: 'Test PR',
+                fromRef: { displayId: 'feat/my-feature' },
+                toRef: { displayId: 'main' },
+                links: {
+                  self: [{ href: 'https://bitbucket.example.com/pr/4638' }],
+                },
+              },
+            ],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         )
       )
     );
 
-    const result = await orchestrator.resolvePrIdByBranch(
-      'BZ',
-      'lighthouse',
-      'feat/my-feature'
-    );
+    const { listPrsForBranch } =
+      await import('../src/utils/bitbucket-utils.js');
+    const prs = await listPrsForBranch('BZ', 'lighthouse', 'feat/my-feature');
 
-    expect(result).toBe('4638');
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining('at=refs%2Fheads%2Ffeat%2Fmy-feature'),
-      expect.objectContaining({ method: 'GET' })
-    );
+    expect(prs).toHaveLength(1);
+    expect(String(prs[0].id)).toBe('4638');
   });
 
-  it('returns undefined when no open PR exists', async () => {
-    const orchestrator = new LumosOrchestrator() as unknown as {
-      resolvePrIdByBranch: (
-        ws: string,
-        repo: string,
-        branch: string
-      ) => Promise<string | undefined>;
-    };
-
+  it('returns empty array when no open PR exists', async () => {
     process.env.BITBUCKET_BASE_URL = 'https://bitbucket.example.com';
     process.env.BITBUCKET_USERNAME = 'user';
     process.env.BITBUCKET_TOKEN = 'token';
@@ -494,34 +483,22 @@ describe('resolvePrIdByBranch', () => {
       )
     );
 
-    const result = await orchestrator.resolvePrIdByBranch(
-      'BZ',
-      'lighthouse',
-      'feat/no-pr'
-    );
+    const { listPrsForBranch } =
+      await import('../src/utils/bitbucket-utils.js');
+    const prs = await listPrsForBranch('BZ', 'lighthouse', 'feat/no-pr');
 
-    expect(result).toBeUndefined();
+    expect(prs).toHaveLength(0);
   });
 
-  it('returns undefined when credentials are missing', async () => {
-    const orchestrator = new LumosOrchestrator() as unknown as {
-      resolvePrIdByBranch: (
-        ws: string,
-        repo: string,
-        branch: string
-      ) => Promise<string | undefined>;
-    };
-
+  it('returns empty array when credentials are missing', async () => {
     delete process.env.BITBUCKET_USERNAME;
     delete process.env.BITBUCKET_TOKEN;
 
-    const result = await orchestrator.resolvePrIdByBranch(
-      'BZ',
-      'lighthouse',
-      'feat/test'
-    );
+    const { listPrsForBranch } =
+      await import('../src/utils/bitbucket-utils.js');
+    const prs = await listPrsForBranch('BZ', 'lighthouse', 'feat/test');
 
-    expect(result).toBeUndefined();
+    expect(prs).toHaveLength(0);
   });
 });
 
@@ -606,16 +583,29 @@ describe('safe-to-merge flow', () => {
         .fn()
         .mockImplementation((url: string, init?: Record<string, unknown>) => {
           // PR lookup by branch
-          if (
-            init?.method === 'GET' &&
-            typeof url === 'string' &&
-            url.includes('/pull-requests?')
-          ) {
+          if (typeof url === 'string' && url.includes('/pull-requests?')) {
             return Promise.resolve(
-              new Response(JSON.stringify({ values: [{ id: 100 }] }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-              })
+              new Response(
+                JSON.stringify({
+                  values: [
+                    {
+                      id: 100,
+                      title: 'Test PR',
+                      fromRef: { displayId: 'feat/my-branch' },
+                      toRef: { displayId: 'main' },
+                      links: {
+                        self: [
+                          { href: 'https://bitbucket.example.com/pr/100' },
+                        ],
+                      },
+                    },
+                  ],
+                }),
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                }
+              )
             );
           }
           // Comments GET (for cleanup)

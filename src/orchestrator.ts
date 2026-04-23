@@ -153,13 +153,13 @@ export class LumosOrchestrator {
 
       if (!pullRequestId || pullRequestId === '0') {
         if (branch) {
-          const resolved = await this.resolvePrIdByBranch(
+          const prs = await listPrsForBranch(
             options.workspace,
             options.repository,
             branch
           );
-          if (resolved) {
-            pullRequestId = resolved;
+          if (prs.length > 0 && prs[0].id) {
+            pullRequestId = String(prs[0].id);
           }
         }
       }
@@ -234,13 +234,13 @@ export class LumosOrchestrator {
         // Attempt to resolve the branch to a numeric PR ID via Bitbucket API.
         // This is critical for comment cleanup, fallback posting, and
         // safe-to-merge flows that all require a numeric PR ID.
-        const resolved = await this.resolvePrIdByBranch(
+        const prs = await listPrsForBranch(
           options.workspace,
           options.repository,
           branch
         );
-        if (resolved) {
-          pullRequestId = resolved;
+        if (prs.length > 0 && prs[0].id) {
+          pullRequestId = String(prs[0].id);
         } else {
           pullRequestId = 'find-by-branch';
           logger.info(
@@ -571,12 +571,12 @@ export class LumosOrchestrator {
 
     if (!pullRequestId || pullRequestId === '0') {
       if (branch) {
-        const resolved = await this.resolvePrIdByBranch(
+        const prs = await listPrsForBranch(
           options.workspace,
           options.repository,
           branch
         );
-        if (resolved) pullRequestId = resolved;
+        if (prs.length > 0 && prs[0].id) pullRequestId = String(prs[0].id);
       }
     }
 
@@ -1881,97 +1881,6 @@ export class LumosOrchestrator {
         Authorization: `Basic ${auth}`,
       },
     };
-  }
-
-  // -------------------------------------------------------------------------
-  // Resolve PR ID from branch name via Bitbucket REST API
-  // -------------------------------------------------------------------------
-
-  /**
-   * Look up the open pull request for a given branch using the Bitbucket
-   * Server REST API. Returns the numeric PR ID as a string, or undefined
-   * if no open PR is found or credentials are missing.
-   *
-   * Endpoint: GET /rest/api/latest/projects/{ws}/repos/{repo}/pull-requests
-   *           ?state=OPEN&at=refs/heads/{branch}
-   */
-  private async resolvePrIdByBranch(
-    workspace: string,
-    repository: string,
-    branch: string
-  ): Promise<string | undefined> {
-    const baseUrl =
-      process.env.BITBUCKET_BASE_URL ?? 'https://bitbucket.juspay.net';
-    const username = process.env.BITBUCKET_USERNAME;
-    const token = process.env.BITBUCKET_TOKEN;
-
-    if (!username || !token) {
-      logger.warn(
-        'Cannot resolve PR by branch: BITBUCKET_USERNAME or BITBUCKET_TOKEN not set.'
-      );
-      return undefined;
-    }
-
-    const refPath = `refs/heads/${branch}`;
-    const url =
-      `${baseUrl}/rest/api/latest/projects/${workspace}/repos/${repository}` +
-      `/pull-requests?state=OPEN&at=${encodeURIComponent(refPath)}`;
-
-    const auth = Buffer.from(`${username}:${token}`).toString('base64');
-
-    try {
-      logger.info(
-        `Resolving PR ID for branch "${branch}" via Bitbucket API...`
-      );
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Basic ${auth}`,
-        },
-      });
-
-      if (!response.ok) {
-        logger.warn(
-          `Failed to look up PRs by branch: ${response.status} ${response.statusText}`
-        );
-        return undefined;
-      }
-
-      const payload = (await response.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
-
-      if (!payload) {
-        return undefined;
-      }
-
-      const values = Array.isArray(payload.values) ? payload.values : [];
-
-      if (values.length === 0) {
-        logger.warn(`No open PR found for branch "${branch}".`);
-        return undefined;
-      }
-
-      const prId = (values[0] as Record<string, unknown>).id;
-      if (typeof prId === 'number') {
-        logger.info(
-          `Resolved branch "${branch}" to PR #${prId}` +
-            (values.length > 1
-              ? ` (${values.length} open PRs found, using first)`
-              : '')
-        );
-        return String(prId);
-      }
-
-      logger.warn(`PR entry has no numeric id field.`);
-      return undefined;
-    } catch (err) {
-      logger.warn(`Error resolving PR by branch: ${err}`);
-      return undefined;
-    }
   }
 
   // -------------------------------------------------------------------------
