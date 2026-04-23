@@ -33,9 +33,48 @@ export function getCurrentBranch(cwd: string): string {
   return exec('git rev-parse --abbrev-ref HEAD', cwd);
 }
 
-export function gitFetch(_remote: string, cwd: string): void {
-  logger.info('Fetching all remotes...');
-  exec(`git fetch --all`, cwd);
+export function gitFetch(remote: string, cwd: string): void {
+  logger.info(`Fetching ${remote}...`);
+
+  const username = process.env.BITBUCKET_USERNAME;
+  const token = process.env.BITBUCKET_TOKEN;
+  const baseUrl = process.env.BITBUCKET_BASE_URL;
+
+  if (username && token && baseUrl) {
+    let host: string;
+    try {
+      host = new URL(baseUrl).host;
+    } catch {
+      logger.info(
+        `BITBUCKET_BASE_URL is malformed, skipping credential injection.`
+      );
+      exec(`git fetch ${remote}`, cwd);
+      return;
+    }
+
+    const currentRemote = exec(`git remote get-url ${remote}`, cwd);
+    const authedUrl = currentRemote.replace(
+      `https://${host}`,
+      `https://${encodeURIComponent(username)}:${encodeURIComponent(token)}@${host}`
+    );
+
+    if (authedUrl === currentRemote) {
+      logger.info(
+        `Remote URL does not match BITBUCKET_BASE_URL host, skipping credential injection.`
+      );
+      exec(`git fetch ${remote}`, cwd);
+      return;
+    }
+
+    exec(`git remote set-url ${remote} ${authedUrl}`, cwd);
+    try {
+      exec(`git fetch ${remote}`, cwd);
+    } finally {
+      exec(`git remote set-url ${remote} ${currentRemote}`, cwd);
+    }
+  } else {
+    exec(`git fetch ${remote}`, cwd);
+  }
 }
 
 export function gitCheckout(branch: string, cwd: string): void {
