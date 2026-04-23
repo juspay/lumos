@@ -10,7 +10,7 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn(() => true),
 }));
 
-const { gitFetch } = await import('../src/utils/git-utils.js');
+const { gitFetch, gitPush } = await import('../src/utils/git-utils.js');
 
 const str = (s: string) => ({ trim: () => s });
 
@@ -133,5 +133,65 @@ describe('gitFetch', () => {
     // should only call get-url + fetch — no set-url calls
     expect(calls).toHaveLength(2);
     expect(calls[1]).toBe('git fetch origin');
+  });
+});
+
+describe('gitPush', () => {
+  const cwd = '/repo';
+
+  beforeEach(() => {
+    execSyncMock.mockReset();
+    delete process.env.BITBUCKET_USERNAME;
+    delete process.env.BITBUCKET_TOKEN;
+    delete process.env.BITBUCKET_BASE_URL;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('injects credentials into remote URL before push and restores afterward', () => {
+    process.env.BITBUCKET_USERNAME = 'ci-user';
+    process.env.BITBUCKET_TOKEN = 'secret';
+    process.env.BITBUCKET_BASE_URL = 'https://bitbucket.example.com';
+
+    const originalUrl = 'https://bitbucket.example.com/BZ/lighthouse.git';
+    execSyncMock
+      .mockReturnValueOnce(str(originalUrl)) // get-url
+      .mockReturnValueOnce(str('')) // set-url (authed)
+      .mockReturnValueOnce(str('')) // push
+      .mockReturnValueOnce(str('')); // set-url (restore)
+
+    gitPush('test/my-branch', cwd);
+
+    const calls = execSyncMock.mock.calls.map((c) => c[0] as string);
+    expect(calls[0]).toBe('git remote get-url origin');
+    expect(calls[1]).toContain('ci-user');
+    expect(calls[1]).toContain('secret');
+    expect(calls[2]).toContain('git push -u origin test/my-branch');
+    expect(calls[3]).toBe(`git remote set-url origin ${originalUrl}`);
+    expect(calls[3]).not.toContain('secret');
+  });
+
+  it('restores remote URL even when push throws', () => {
+    process.env.BITBUCKET_USERNAME = 'ci-user';
+    process.env.BITBUCKET_TOKEN = 'secret';
+    process.env.BITBUCKET_BASE_URL = 'https://bitbucket.example.com';
+
+    const originalUrl = 'https://bitbucket.example.com/BZ/lighthouse.git';
+    execSyncMock
+      .mockReturnValueOnce(str(originalUrl)) // get-url
+      .mockReturnValueOnce(str('')) // set-url (authed)
+      .mockImplementationOnce(() => {
+        throw new Error('push failed');
+      }) // push fails
+      .mockReturnValueOnce(str('')); // set-url (restore)
+
+    expect(() => gitPush('test/my-branch', cwd)).toThrow('push failed');
+
+    const restoreCall = execSyncMock.mock.calls[3]?.[0] as string;
+    expect(restoreCall).toBeDefined();
+    expect(restoreCall).toContain(originalUrl);
+    expect(restoreCall).not.toContain('secret');
   });
 });
