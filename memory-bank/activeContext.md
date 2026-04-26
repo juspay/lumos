@@ -62,6 +62,31 @@ Review checks are now repo-agnostic and cover 10 structured checks.
 - **SKIP scope is narrow**: Video and dev-proof checks skip only for changes
   with no observable runtime behaviour. Justification required in Notes column.
 
+## Fix Mode Git Flow (fix/test-branch-base-commit)
+
+Two bugs fixed from Lighthouse Jenkins runs:
+
+**Bug 1: Stale index in amended commit**
+
+- Jenkins shallow checkout leaves index in previous workspace state.
+  `git checkout -B` moves HEAD but does NOT reset index/working tree.
+  `git commit --amend` captured stale config files (CLAUDE.md, Jenkinsfile, etc.).
+- Fix: `git reset --hard origin/<testBranch>` after checkout in `reviewTestPr`
+  and `generateForDevPr`.
+
+**Bug 2: Feature code absent at test runtime**
+
+- Test branch created from dev branch at generation time. Fix mode runs later
+  when dev branch has moved. Feature UI elements (`[data-pw="function-confirmation-card"]`)
+  don't exist in the test branch's frozen snapshot.
+- Fix: `git reset --hard origin/<targetBranch>` in `reviewTestPr` — in fix mode,
+  `sourceBranch` is the test branch itself; `targetBranch` is the feature/dev branch.
+  Reset to targetBranch ensures all feature code is present when Playwright runs.
+  Reset preferred over rebase — no conflict risk, no broken Jenkins workspace.
+
+**Also:** `gitFetch` now accepts optional `branch?` param —
+`git fetch origin <branch>` ensures the ref is available in shallow clones.
+
 ## npm Version History
 
 | Version | Contents                                        | Published via |
@@ -74,14 +99,15 @@ Review checks are now repo-agnostic and cover 10 structured checks.
 | 1.1.3   | Orchestrator cleanup, no-action signal fix      | OIDC auto     |
 | 1.2.0   | PR lookup by branch, safe-to-merge, prior-run   | OIDC auto     |
 | 1.3.0   | Test generation v2                              | OIDC auto     |
-| 1.4.0   | PR-creation git flow refinements                | Pending       |
+| 1.4.0   | PR-creation git flow refinements                | OIDC auto     |
+| 1.4.1   | Fix resolvePrIdByBranch broken branch lookup    | OIDC auto     |
+| 1.4.2   | Fix Bitbucket credential injection in gitFetch  | OIDC auto     |
 | 1.5.0   | PR review (10 checks, repo-agnostic)            | Pending       |
+| next    | Fix stale index + rebase in fix/generate mode   | Pending       |
 
 ## Next Steps
 
-1. Validate `reviewPr()` against a real Bitbucket PR using `scripts/review-local.ts`
-2. Populate `memory-bank/pr-review-conventions.md` with project-specific review
-   conventions if needed (currently optional — generic checks cover most cases)
+1. Merge `fix/test-branch-base-commit` to `release` → publish next patch
+2. Validate `reviewPr()` against a real Bitbucket PR using `scripts/review-local.ts`
 3. Merge `feat/review-pr-mode` to `release` and publish v1.5.0
 4. Wire up `reviewPr()` in Lighthouse Jenkinsfile as a standalone review stage
-5. Consider surfacing `checksRun` / `allPassed` to block or warn in Jenkins pipeline

@@ -872,15 +872,24 @@ export class LumosOrchestrator {
           try {
             const repoRoot = options.targetRepoRoot ?? this.projectRoot;
 
-            gitFetch('origin', repoRoot);
+            // Fetch the dev branch explicitly by name so it is guaranteed to
+            // be present in the local object store even in shallow clones.
+            gitFetch('origin', repoRoot, prMetadata.sourceBranch);
 
             // Create/checkout the test branch directly from the remote --
             // never checkout the dev branch locally so the working tree is
             // not affected by any local modifications.
-            if (remoteBranchExists(testBranchName, repoRoot)) {
+            const testBranchExistsRemotely = remoteBranchExists(
+              testBranchName,
+              repoRoot
+            );
+            if (testBranchExistsRemotely) {
               logger.info(
                 `Branch ${testBranchName} already exists remotely. Checking out...`
               );
+              // Fetch the test branch explicitly so its ref is in the local
+              // object store even in shallow clones.
+              gitFetch('origin', repoRoot, testBranchName);
               execSync(
                 `git checkout -B ${testBranchName} origin/${testBranchName}`,
                 { cwd: repoRoot, encoding: 'utf-8' }
@@ -894,6 +903,17 @@ export class LumosOrchestrator {
                 { cwd: repoRoot, encoding: 'utf-8' }
               );
             }
+
+            // Hard-reset the index and working tree to match the remote ref
+            // exactly. This discards any stale files that the Jenkins shallow
+            // checkout left in the workspace so they cannot sneak into the commit.
+            const resetRef = testBranchExistsRemotely
+              ? `origin/${testBranchName}`
+              : `origin/${prMetadata.sourceBranch}`;
+            execSync(`git reset --hard ${resetRef}`, {
+              cwd: repoRoot,
+              encoding: 'utf-8',
+            });
 
             // Write test files
             const filePaths: string[] = [];
@@ -1144,6 +1164,17 @@ export class LumosOrchestrator {
         `git checkout -B ${prMetadata.sourceBranch} origin/${prMetadata.sourceBranch}`,
         { cwd: repoRoot, encoding: 'utf-8' }
       );
+
+      // Reset to the latest dev (target) branch so all feature code is present
+      // when tests run. sourceBranch here is the test branch itself; the
+      // feature code lives on targetBranch (the dev PR branch).
+      logger.info(
+        `Resetting to origin/${prMetadata.targetBranch} to ensure feature code is present...`
+      );
+      execSync(`git reset --hard origin/${prMetadata.targetBranch}`, {
+        cwd: repoRoot,
+        encoding: 'utf-8',
+      });
 
       const filePaths: string[] = [];
       for (const file of fixed) {

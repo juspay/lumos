@@ -85,9 +85,10 @@ export function getCurrentBranch(cwd: string): string {
   return exec('git rev-parse --abbrev-ref HEAD', cwd);
 }
 
-export function gitFetch(remote: string, cwd: string): void {
-  logger.info(`Fetching ${remote}...`);
-  withAuthedRemote(remote, cwd, () => exec(`git fetch ${remote}`, cwd));
+export function gitFetch(remote: string, cwd: string, branch?: string): void {
+  const fetchTarget = branch ? `${remote} ${branch}` : remote;
+  logger.info(`Fetching ${fetchTarget}...`);
+  withAuthedRemote(remote, cwd, () => exec(`git fetch ${fetchTarget}`, cwd));
 }
 
 export function gitCheckout(branch: string, cwd: string): void {

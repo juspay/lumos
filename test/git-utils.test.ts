@@ -134,6 +134,35 @@ describe('gitFetch', () => {
     expect(calls).toHaveLength(2);
     expect(calls[1]).toBe('git fetch origin');
   });
+
+  it('fetches a specific branch when branch param is provided (no credentials)', () => {
+    execSyncMock.mockReturnValue(str(''));
+    gitFetch('origin', cwd, 'feat/my-branch');
+    expect(execSyncMock).toHaveBeenCalledOnce();
+    expect(execSyncMock).toHaveBeenCalledWith(
+      'git fetch origin feat/my-branch',
+      expect.any(Object)
+    );
+  });
+
+  it('fetches a specific branch with credential injection when branch param is provided', () => {
+    process.env.BITBUCKET_USERNAME = 'ci-user';
+    process.env.BITBUCKET_TOKEN = 'secret';
+    process.env.BITBUCKET_BASE_URL = 'https://bitbucket.example.com';
+
+    const originalUrl = 'https://bitbucket.example.com/BZ/lighthouse.git';
+    execSyncMock
+      .mockReturnValueOnce(str(originalUrl)) // get-url
+      .mockReturnValueOnce(str('')) // set-url (authed)
+      .mockReturnValueOnce(str('')) // fetch
+      .mockReturnValueOnce(str('')); // set-url (restore)
+
+    gitFetch('origin', cwd, 'feat/my-branch');
+
+    const calls = execSyncMock.mock.calls.map((c) => c[0] as string);
+    expect(calls[2]).toBe('git fetch origin feat/my-branch');
+    expect(calls[3]).toBe(`git remote set-url origin ${originalUrl}`);
+  });
 });
 
 describe('gitPush', () => {
