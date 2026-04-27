@@ -1830,43 +1830,60 @@ export class LumosOrchestrator {
     }
 
     try {
-      const response = await fetch(url, { method: 'GET', headers });
-
-      if (!response.ok) {
-        logger.warn(
-          `Failed to fetch PR comments for cleanup: ${response.status} ${response.statusText}`
-        );
-        return { deleted: 0 };
-      }
-
-      const payload = (await response.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
-
-      if (!payload) {
-        return { deleted: 0 };
-      }
-
-      // Extract comment entries with their IDs and text
-      const values = Array.isArray(payload.values)
-        ? payload.values
-        : Array.isArray(payload.comments)
-          ? payload.comments
-          : [];
-
+      // Paginate through ALL comment pages so we catch Lumos comments even on
+      // busy PRs where the first page does not contain them.
       const lumosComments: { id: number; version: number; text: string }[] = [];
-      for (const entry of values) {
-        if (!entry || typeof entry !== 'object') continue;
-        const record = entry as Record<string, unknown>;
-        const text = this.extractBitbucketCommentText(record);
-        if (text && text.trimStart().toLowerCase().startsWith('## lumos')) {
-          const id = record.id;
-          const version =
-            typeof record.version === 'number' ? record.version : 0;
-          if (typeof id === 'number') {
-            lumosComments.push({ id, version, text });
+      let start = 0;
+      const limit = 100;
+      let isLastPage = false;
+
+      while (!isLastPage) {
+        const pageUrl = `${url}?start=${start}&limit=${limit}`;
+        const response = await fetch(pageUrl, { method: 'GET', headers });
+
+        if (!response.ok) {
+          logger.warn(
+            `Failed to fetch PR comments for cleanup: ${response.status} ${response.statusText}`
+          );
+          break;
+        }
+
+        const payload = (await response.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+
+        if (!payload) break;
+
+        // Extract comment entries with their IDs and text
+        const values = Array.isArray(payload.values)
+          ? payload.values
+          : Array.isArray(payload.comments)
+            ? payload.comments
+            : [];
+
+        for (const entry of values) {
+          if (!entry || typeof entry !== 'object') continue;
+          const record = entry as Record<string, unknown>;
+          const text = this.extractBitbucketCommentText(record);
+          if (text && text.trimStart().toLowerCase().startsWith('## lumos')) {
+            const id = record.id;
+            const version =
+              typeof record.version === 'number' ? record.version : 0;
+            if (typeof id === 'number') {
+              lumosComments.push({ id, version, text });
+            }
           }
+        }
+
+        // Bitbucket Server paginates via isLastPage + nextPageStart
+        isLastPage =
+          payload.isLastPage === true ||
+          typeof payload.nextPageStart !== 'number' ||
+          values.length === 0;
+
+        if (!isLastPage) {
+          start = payload.nextPageStart as number;
         }
       }
 

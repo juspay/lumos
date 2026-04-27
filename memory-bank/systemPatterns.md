@@ -239,7 +239,8 @@ and missing edge cases. The plan appears in the comment under "### Test Plan".
 The PR review system prompt is separate from the failure-analysis and
 test-generation prompts. It is **repo-agnostic** — no Lighthouse-specific
 paths, title formats, or team names are hardcoded. Project-specific conventions
-can be injected via `memory-bank/pr-review-conventions.md` at runtime.
+can be injected from `memory-bank/lumos/pr-review-conventions.md` or
+`memory-bank/pr-review-conventions.md` at runtime.
 
 Structure:
 
@@ -249,30 +250,32 @@ Structure:
 2. **AVAILABLE TOOLS** — Bitbucket MCP tools: `get_pull_request`,
    `get_pull_request_diff`, `list_pr_commits`, `add_comment`, `delete_comment`,
    `get_file_content`
-3. **WORKFLOW** (6 steps) — fetch PR → fetch diff → delete old `## Lumos Review`
-   comments → run all checks → compose comment → post via `add_comment`
-4. **CHECKS** — 10 checks with PASS / FAIL / SKIP semantics:
+3. **WORKFLOW** (6 steps) — fetch PR → fetch diff → delete all old
+   `## Lumos Review` comments → run all checks → compose comment → post once
+   via `add_comment`
+4. **CHECKS** — 10 checks with PASS / FAIL / ADVISORY / SKIP semantics:
 
-   | #   | Check                            | Severity  | Notes                                                                       |
-   | --- | -------------------------------- | --------- | --------------------------------------------------------------------------- |
-   | 1   | PR Description Completeness      | Hard-fail | Problem/Root Cause/Solution/How to Test, >100 chars, no placeholders        |
-   | 2   | PR Title Convention              | Hard-fail | Ticket ref + valid type (feat/fix/…) — repo-agnostic, judgement-based       |
-   | 3   | Build/CI Status                  | Hard-fail | From PR metadata; SKIP if unavailable                                       |
-   | 4   | Test Coverage                    | Hard-fail | Testable src changed → test files touched; generic path heuristic           |
-   | 5   | Playwright Convention Compliance | Hard-fail | Mandatory on all PRs; SKIP only for pure docs/config/CI changes             |
-   | 6   | Automation Coverage              | Hard-fail | Mandatory on ALL PRs — no exceptions; both mock and non-mock paths required |
-   | 7   | How to Test (Dev-Authored)       | Hard-fail | Must NOT be auto-generated (Yama, Copilot, etc.); specific signals listed   |
-   | 8   | Video Proof — Mocking Mode       | Hard-fail | Screen recording/GIF/link with mocked backend; SKIP non-UI only             |
-   | 9   | Video Proof — Non-Mocking Mode   | Hard-fail | Separate recording against real backend; SKIP non-UI only                   |
-   | 10  | Dev Code-Change Proof            | Hard-fail | Screenshots/recording of manual testing; SKIP pure refactors/docs           |
+   | #   | Check                            | Severity  | Notes                                                                        |
+   | --- | -------------------------------- | --------- | ---------------------------------------------------------------------------- |
+   | 1   | PR Description Completeness      | Hard-fail | Problem/Root Cause/Solution/How to Test, >100 chars, no placeholders         |
+   | 2   | PR Title Convention              | Hard-fail | Ticket ref + valid type (feat/fix/…) — repo-agnostic, judgement-based        |
+   | 3   | Build/CI Status                  | Mixed     | FAIL if failed, ADVISORY if in progress, SKIP if unavailable                 |
+   | 4   | Test Coverage                    | Hard-fail | Testable src changed → test files touched; generic path heuristic            |
+   | 5   | Playwright Convention Compliance | Hard-fail | Mandatory on all PRs; SKIP only for pure docs/config/CI changes              |
+   | 6   | Automation Coverage              | Hard-fail | Mandatory on ALL PRs — no exceptions; both mock and non-mock paths required  |
+   | 7   | How to Test (Dev-Authored)       | Hard-fail | Must NOT be auto-generated (Yama, Copilot, etc.); specific signals listed    |
+   | 8   | Video Proof — Mocking Mode       | Hard-fail | Screen recording/GIF/link with mocked backend; SKIP non-UI only              |
+   | 9   | Video Proof — Non-Mocking Mode   | Hard-fail | Separate recording against real backend; SKIP non-UI only                    |
+   | 10  | Dev Code-Change Proof            | Mixed     | FAIL for UI/API gaps, ADVISORY for CI/tooling gaps, SKIP pure refactors/docs |
 
 5. **PROJECT CONVENTIONS REFERENCE** (optional) — content of
-   `memory-bank/pr-review-conventions.md` injected if file exists (≤8k chars)
+   the first existing conventions file injected if present (≤8k chars)
 6. **COMMENT FORMAT** — rigid 10-row markdown table + verdict section:
    - `✅ Approved` — all checks PASS
-   - `❌ Changes Required` — any hard-fail (checks 1–4, 7–10)
-   - `⚠ Review Recommended` — only soft-fail (checks 5–6)
+   - `❌ Changes Required` — any FAIL
+   - `⚠ Advisory` — no FAILs, but at least one ADVISORY
    - `➖` — check skipped (N/A)
+   - hard length cap: under 40 total lines, notes cells ≤10 words
 
 `buildPrReviewUserMessage()` supplies only: workspace, repository, PR ID, and
 optional trigger source.
@@ -288,10 +291,13 @@ as part of its workflow.
 Orchestrator (before generate())
   |
   v
-GET /rest/api/latest/projects/{ws}/repos/{repo}/pull-requests/{id}/activities?limit=500
+GET /rest/api/latest/projects/{ws}/repos/{repo}/pull-requests/{id}/comments?start=N&limit=100
   |
   v
-Filter: activity.action === 'COMMENTED' && comment.text includes 'Lumos -- Test Failure Analysis'
+Paginate until isLastPage / nextPageStart exhausted
+  |
+  v
+Filter: comment text starts with '## lumos' (case-insensitive after trim)
   |
   v
 DELETE /rest/api/latest/projects/{ws}/repos/{repo}/pull-requests/{id}/comments/{commentId}?version={version}
@@ -426,7 +432,7 @@ All errors extend `LumosError` and carry a machine-readable `code` plus a
 | 3-layer config with Zod                               | YAML for project defaults, env vars for per-run overrides (Jenkins stages), Zod catches invalid config early.                                                                                                                                                                                                                                                                           |
 | Langfuse observability (optional)                     | Traces AI calls for cost monitoring and debugging. Disabled by default; enabled via config or env vars.                                                                                                                                                                                                                                                                                 |
 | Branch-based PR discovery (`find-by-branch`)          | Matches Yama's pattern. Jenkins `CHANGE_ID` is unavailable in some contexts (manual trigger, non-multibranch). AI discovers PR via `list_pull_requests` using branch name. Fallback REST posting disabled when PR ID is non-numeric.                                                                                                                                                    |
-| Orchestrator-level comment cleanup                    | `deletePreviousLumosComments()` runs before each attempt via Bitbucket REST API. More reliable than relying on the AI to delete old comments as part of its workflow. Removed `readToolSuccess()`, `extractDiscoveredPrId()`, `verifyCommentPosted()` -- orchestrator no longer parses MCP tool results.                                                                                |
+| Orchestrator-level comment cleanup                    | `deletePreviousLumosComments()` runs before each attempt via Bitbucket REST API, now with full pagination across PR comment pages. More reliable than relying on the AI to delete old comments as part of its workflow. Removed `readToolSuccess()`, `extractDiscoveredPrId()`, `verifyCommentPosted()` -- orchestrator no longer parses MCP tool results.                              |
 | Simplified verification (v1.1.3)                      | Instead of parsing MCP `CallToolResult` format to verify `add_comment` success, the orchestrator checks `toolsUsed.includes('add_comment')`. Combined with orchestrator-level cleanup, this eliminates the duplicate comment bug without complex result parsing.                                                                                                                        |
 | Single agentic call for test gen                      | AI reads diffs, plans, generates, and posts in one `generate()` call. No multi-turn or two-pass architecture. Keeps infrastructure simple.                                                                                                                                                                                                                                              |
 | Test intent planner as prompt step                    | Forces AI to output structured test plan before code generation. Catches wrong assumptions early. Adds ~500 tokens but prevents wasted code generation.                                                                                                                                                                                                                                 |

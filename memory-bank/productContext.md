@@ -24,14 +24,14 @@ does not affect the others or the build.
 
 ## Comparison with Existing Tools
 
-| Aspect        | playwright-failure-analyzer.js               | enhanced-test-summary-generator.js     | Lumos analyze()                                                   | Lumos reviewPr()                                                    |
-| ------------- | -------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Approach      | Regex matching against 17 pattern categories | Aggregates stats, posts summary tables | AI reads PR diff + test source                                    | AI reads PR metadata, diff, and attachments                         |
-| Suggestions   | Generic per-category advice                  | None (informational only)              | Specific: file, line, code snippet                                | Structured verdict per check with suggested action                  |
-| PR context    | None — doesn't know what changed             | None                                   | Fetches full PR diff via MCP                                      | Fetches PR metadata, diff, build status, attachments                |
-| Comment dedup | None                                         | None                                   | Implemented — deletes old Lumos comments via MCP before posting   | Implemented — deletes old `## Lumos Review` comments before posting |
-| Token cost    | Zero (no AI)                                 | Zero (no AI)                           | ~130k-540k tokens per run (varies with failure count and retries) | ~200k-500k tokens per run (single generate() call, no retry)        |
-| Speed         | < 1 second                                   | < 5 seconds                            | 1.5-6 minutes                                                     | 1-3 minutes                                                         |
+| Aspect        | playwright-failure-analyzer.js               | enhanced-test-summary-generator.js     | Lumos analyze()                                                   | Lumos reviewPr()                                                                                        |
+| ------------- | -------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Approach      | Regex matching against 17 pattern categories | Aggregates stats, posts summary tables | AI reads PR diff + test source                                    | AI reads PR metadata, diff, and attachments                                                             |
+| Suggestions   | Generic per-category advice                  | None (informational only)              | Specific: file, line, code snippet                                | Structured verdict per check with suggested action                                                      |
+| PR context    | None — doesn't know what changed             | None                                   | Fetches full PR diff via MCP                                      | Fetches PR metadata, diff, build status, attachments                                                    |
+| Comment dedup | None                                         | None                                   | Implemented — deletes old Lumos comments via MCP before posting   | Implemented — deletes old `## Lumos Review` comments before posting, with paginated cleanup on busy PRs |
+| Token cost    | Zero (no AI)                                 | Zero (no AI)                           | ~130k-540k tokens per run (varies with failure count and retries) | ~200k-500k tokens per run (single generate() call, no retry)                                            |
+| Speed         | < 1 second                                   | < 5 seconds                            | 1.5-6 minutes                                                     | 1-3 minutes                                                                                             |
 
 ## Consumer Workflow
 
@@ -52,7 +52,8 @@ does not affect the others or the build.
 3. Lumos fetches PR metadata, diff, build status, and attachments
 4. Runs 10 structured checks (description, title, build, tests, conventions,
    video proofs, how-to-test authorship, dev proof)
-5. Posts a verdict comment: ✅ Approved / ❌ Changes Required / ⚠ Review Recommended
+5. Deletes stale Lumos review comments, then posts one fresh verdict comment:
+   ✅ Approved / ❌ Changes Required / ⚠ Advisory
 6. Developer addresses flagged issues before requesting merge
 
 Lighthouse consumes Lumos via `npm install @juspay/lumos` (published to npm
@@ -70,7 +71,8 @@ to use `merchant-greeting`."
 
 **reviewPr()**: Catches common PR quality gaps before review: missing video
 recordings, auto-generated "How to Test" sections (Yama-filled descriptions
-that give reviewers nothing actionable), absent test coverage, broken builds.
+that give reviewers nothing actionable), absent test coverage, broken builds,
+and non-blocking advisory issues like in-progress CI or missing tooling logs.
 Works on any repository — not tied to Lighthouse conventions.
 
 ## Constraints

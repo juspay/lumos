@@ -308,7 +308,8 @@ checks, decoupled from both failure analysis and test generation.
 
 3. **Prompt is repo-agnostic**: All Lighthouse/Breeze hardcoding removed.
    Title format, test paths, and role description are generic. Project-specific
-   conventions load from `memory-bank/pr-review-conventions.md` at runtime.
+   conventions load from `memory-bank/lumos/pr-review-conventions.md` first,
+   then fall back to `memory-bank/pr-review-conventions.md`.
 
 4. **New orchestrator flow** (`src/orchestrator.ts`):
    `reviewPr(options)` builds the PR-review prompt, runs a single
@@ -334,6 +335,31 @@ checks, decoupled from both failure analysis and test generation.
 
 **Status**: All source code complete. `pnpm typecheck` passes. Pending:
 real PR smoke test via `scripts/review-local.ts`.
+
+### Phase 11.1 -- PR Review Cleanup + Advisory Refinements (In Progress)
+
+Branch: `feat/review-pr-mode`. Follow-up refinement focused on reliability and
+review signal quality.
+
+1. **Paginated Lumos comment cleanup** (`src/orchestrator.ts`):
+   `deletePreviousLumosComments()` now walks all PR comment pages using
+   Bitbucket pagination (`start`, `limit`, `isLastPage`, `nextPageStart`).
+   This fixes stale Lumos comments being missed on busy PRs where page 1 does
+   not contain all old review comments.
+2. **Prompt workflow aligned with cleanup** (`src/prompts/pr-review-prompt.ts`):
+   the AI is now explicitly instructed to list all PR comments, delete every
+   `## Lumos Review` comment, and only then post exactly one new review.
+3. **New review status semantics**:
+   PASS / FAIL / ADVISORY / SKIP are now supported. `ADVISORY` is a soft,
+   non-blocking finding that maps to verdict `⚠ Advisory`.
+4. **Check refinements**:
+   - Build status `INPROGRESS` is advisory instead of a hard fail
+   - CI/tooling-only changes can use logs, console output, or dry-run output
+     as manual-proof artefacts
+   - Missing proof for CI/tooling-only changes is advisory, not blocking
+5. **Comment format tightened**:
+   review output must stay under 40 lines, use concise notes cells, and render
+   a compact `Action required` section instead of longer issue blocks.
 
 ## Test Validation Results
 

@@ -35,14 +35,20 @@ You have Bitbucket MCP tools available:
   sections.push(`[WORKFLOW — follow in order]
 1. Call get_pull_request to fetch PR metadata (title, description, attachments, build status).
 2. Call get_pull_request_diff to fetch changed files and their diffs.
-3. Scan existing PR comments. Delete any comment whose text starts with
-   "## Lumos Review" using delete_comment — avoid duplicate reviews.
+3. Delete ALL existing Lumos Review comments before posting a new one:
+   - Call list_pr_comments (or equivalent) to fetch all comments on the PR.
+   - For EVERY comment whose text starts with "## Lumos Review", call delete_comment.
+   - Do NOT skip this step — there may be multiple stale review comments from previous runs.
+   - Only after all stale comments are deleted, proceed to the next step.
 4. Run ALL checks in [CHECKS].
 5. Compose the review comment using [COMMENT FORMAT].
-6. Call add_comment to post the review.`);
+6. Call add_comment ONCE to post the review.`);
 
   sections.push(`[CHECKS]
-Run every check. Each produces PASS / FAIL / SKIP (N/A).
+Run every check. Each produces PASS / FAIL / ADVISORY / SKIP (N/A).
+FAIL    = hard failure — blocks merge (verdict becomes ❌ Changes Required).
+ADVISORY = soft issue — notable but does not block merge (verdict becomes ⚠ Advisory if no hard FAILs).
+SKIP    = not applicable for this PR type (N/A).
 
 --- CHECK 1: PR Description Completeness ---
 Required sections (any order, any heading style):
@@ -67,7 +73,7 @@ Use judgement — exact prefix format may vary per team; flag only clear violati
 --- CHECK 3: Build Status ---
 From the PR's latest commit hash, check build/CI status using available MCP tools.
 If the get_pull_request response includes build/pipeline status → use it:
-  FAIL if build FAILED. WARN (soft) if INPROGRESS. PASS if SUCCESSFUL.
+  FAIL if build FAILED. ADVISORY if INPROGRESS (build still running — soft, non-blocking). PASS if SUCCESSFUL.
 If no build-status tool or data is available in the get_pull_request output →
   mark this check as SKIP (N/A) with note "Build status unavailable — no CI tool configured".
 
@@ -148,58 +154,68 @@ automated test results and separate from the execution videos above.
 Accepted proof: screenshots of the feature in action (before/after), a screen recording
   of the developer navigating through the changed flow, logs or API response snapshots,
   or any artefact demonstrating hands-on verification.
-FAIL if no developer-authored proof of manual testing is present.
+For CI/scripting-only changes (e.g. Jenkinsfile, shell/JS wrapper scripts with no UI):
+  accepted proof includes Jenkins build logs, console output snippets, or dry-run output.
+FAIL if no developer-authored proof of manual testing is present for UI or API changes.
+ADVISORY if the change is a CI/tooling script and no execution log/output is provided
+  (notable gap but does not block merge — reviewer should request proof in follow-up).
 SKIP (N/A) for changes that have no observable runtime behaviour (pure refactors, docs,
   type-only changes) — but justify the skip in the Notes column.`);
 
-  const conventionsPath = resolve(
-    projectRoot,
-    'memory-bank/pr-review-conventions.md'
-  );
-  if (existsSync(conventionsPath)) {
-    const content = readFileSync(conventionsPath, 'utf-8').slice(0, 8_000);
-    sections.push(`[PROJECT CONVENTIONS REFERENCE]\n${content}`);
+  // Check multiple candidate paths for project-specific PR review conventions.
+  // Teams may place the file at the root memory-bank or under a lumos/ subdirectory.
+  const conventionsCandidates = [
+    'memory-bank/lumos/pr-review-conventions.md',
+    'memory-bank/pr-review-conventions.md',
+  ];
+  for (const candidate of conventionsCandidates) {
+    const conventionsPath = resolve(projectRoot, candidate);
+    if (existsSync(conventionsPath)) {
+      const content = readFileSync(conventionsPath, 'utf-8').slice(0, 8_000);
+      sections.push(`[PROJECT CONVENTIONS REFERENCE]\n${content}`);
+      break;
+    }
   }
 
   sections.push(`[COMMENT FORMAT]
-Post EXACTLY this structure:
+Post EXACTLY this structure. Keep it short — the entire comment must be under 40 lines.
 
 ## Lumos Review — PR #{{pr_id}}
 
-**Verdict: {{✅ Approved | ❌ Changes Required | ⚠ Review Recommended}}**
+**Verdict: {{✅ Approved | ❌ Changes Required | ⚠ Advisory}}**
 
 | Check | Status | Notes |
 |---|---|---|
-| PR Description | {{✅ or ❌}} | {{one line}} |
-| Title Convention | {{✅ or ❌}} | {{one line}} |
-| Build Status | {{✅ or ❌ or ⏳ or ➖}} | {{one line}} |
-| Test Coverage | {{✅ or ❌ or ➖}} | {{one line or N/A}} |
-| Playwright Convention | {{✅ or ❌}} | {{one line}} |
-| Automation Coverage | {{✅ or ❌}} | {{one line}} |
-| How to Test (Dev-Authored) | {{✅ or ❌}} | {{one line}} |
-| Video Proof — Mocking | {{✅ or ❌ or ➖}} | {{one line or N/A}} |
-| Video Proof — Non-Mocking | {{✅ or ❌ or ➖}} | {{one line or N/A}} |
-| Dev Code-Change Proof | {{✅ or ❌ or ➖}} | {{one line or N/A}} |
+| PR Description | {{✅/❌/⚠}} | {{≤10 words}} |
+| Title Convention | {{✅/❌/⚠}} | {{≤10 words}} |
+| Build Status | {{✅/❌/⚠/➖}} | {{≤10 words}} |
+| Test Coverage | {{✅/❌/⚠/➖}} | {{≤10 words}} |
+| Playwright Convention | {{✅/❌/⚠/➖}} | {{≤10 words}} |
+| Automation Coverage | {{✅/❌/⚠/➖}} | {{≤10 words}} |
+| How to Test (Dev-Authored) | {{✅/❌/⚠}} | {{≤10 words}} |
+| Video Proof — Mocking | {{✅/❌/⚠/➖}} | {{≤10 words}} |
+| Video Proof — Non-Mocking | {{✅/❌/⚠/➖}} | {{≤10 words}} |
+| Dev Code-Change Proof | {{✅/❌/⚠/➖}} | {{≤10 words}} |
 
-{{IF verdict is ❌ Changes Required}}
-### ❌ Issues Found
-
-#### {{Check Name}}
-- {{issue}}
-
-**Suggested Action:** {{concrete fix}}
+{{IF any ❌ or ⚠ rows exist}}
+**Action required:**
+{{For each ❌ row}}- ❌ **{{Check Name}}**: {{one sentence — what is missing and what to add}}
+{{For each ⚠ row}}- ⚠ **{{Check Name}}**: {{one sentence — what to improve}}
 {{END IF}}
 
 ---
-*Reviewed by Lumos | PR #{{pr_id}} | {{ISO timestamp}}*
+*Lumos | PR #{{pr_id}} | {{ISO timestamp}}*
 
 VERDICT RULES:
-✅ Approved = all checks PASS
-❌ Changes Required = any check FAILS (all 10 checks are hard-fails)
-➖ = check skipped (N/A) — only valid for checks 5 and 6 on PRs with zero source
-    and zero test files (pure docs, config, or CI-only changes)
+✅ Approved        = all checks PASS
+❌ Changes Required = any FAIL
+⚠ Advisory         = no FAILs but at least one ADVISORY
 
-Do NOT leave any {{placeholders}} in the final posted comment.`);
+STRICT LENGTH RULES (MUST follow):
+- Notes column: ≤10 words per cell. No sentences, no sub-bullets.
+- Action required section: ONE line per failing check. No code blocks. No multi-line examples.
+- No "Suggested Action:" headers, no nested bullets, no paragraphs.
+- Do NOT leave any {{placeholders}} in the final posted comment.`);
 
   return sections.join('\n\n');
 }
