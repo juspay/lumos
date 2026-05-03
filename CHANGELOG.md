@@ -1,3 +1,7 @@
+## <small>1.5.2 (2026-05-03)</small>
+
+* fix(pr-review): paginate stale cleanup and add advisory verdict semantics ([527d04f](https://github.com/juspay/lumos/commit/527d04f)), closes [hi#volume](https://github.com/hi/issues/volume)
+
 ## <small>1.5.1 (2026-04-26)</small>
 
 * fix: reset index and rebase onto dev branch in fix mode ([0049ef9](https://github.com/juspay/lumos/commit/0049ef9))
