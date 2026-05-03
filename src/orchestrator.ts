@@ -1,5 +1,5 @@
 import { resolve, join } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { NeuroLink } from '@juspay/neurolink';
 import { loadConfig, type LumosConfig } from './config.js';
 import { parsePlaywrightReport } from './parsers/playwright.js';
@@ -919,6 +919,13 @@ export class LumosOrchestrator {
             const filePaths: string[] = [];
             for (const file of testFiles) {
               const fullPath = resolve(repoRoot, file.filePath);
+              // Guard against path traversal from AI-generated paths
+              if (!fullPath.startsWith(repoRoot + '/')) {
+                logger.warn(
+                  `Skipping file outside repo root: ${file.filePath}`
+                );
+                continue;
+              }
               const dir = resolve(fullPath, '..');
               const { mkdirSync, writeFileSync } = await import('node:fs');
               mkdirSync(dir, { recursive: true });
@@ -926,6 +933,12 @@ export class LumosOrchestrator {
               filePaths.push(file.filePath);
               logger.info(`Wrote: ${file.filePath}`);
             }
+
+            // Auto-format generated files with prettier and eslint --fix before
+            // committing (createPr mode only — comment-only mode does not write
+            // files to disk). Purely deterministic — no AI call. Unfixable lint
+            // errors are surfaced in Jenkins logs for the AI fix loop.
+            this.formatAndLintGeneratedFiles(filePaths, repoRoot);
 
             // Validate + fix only in comment-only mode. In createPr mode the
             // tsc check runs against Lighthouse's tsconfig which cannot resolve
@@ -1179,6 +1192,11 @@ export class LumosOrchestrator {
       const filePaths: string[] = [];
       for (const file of fixed) {
         const fullPath = resolve(repoRoot, file.filePath);
+        // Guard against path traversal from AI-generated paths
+        if (!fullPath.startsWith(repoRoot + '/')) {
+          logger.warn(`Skipping file outside repo root: ${file.filePath}`);
+          continue;
+        }
         const dir = resolve(fullPath, '..');
         const { mkdirSync, writeFileSync } = await import('node:fs');
         mkdirSync(dir, { recursive: true });
@@ -1186,6 +1204,9 @@ export class LumosOrchestrator {
         filePaths.push(file.filePath);
         logger.info(`Fixed: ${file.filePath}`);
       }
+
+      // Auto-format fixed files before amending the commit.
+      this.formatAndLintGeneratedFiles(filePaths, repoRoot);
 
       gitAdd(filePaths, repoRoot);
       gitAmend(repoRoot); // --amend --no-edit: no new commits
@@ -1306,6 +1327,75 @@ export class LumosOrchestrator {
     }
 
     return hints;
+  }
+
+  /**
+   * Run prettier --write and eslint --fix on generated files before committing.
+   * This is a best-effort step — errors are logged but never throw, so a
+   * formatter failure cannot block the commit.
+   */
+  private formatAndLintGeneratedFiles(filePaths: string[], cwd: string): void {
+    if (filePaths.length === 0) return;
+
+    // 1. prettier --write — fixes tabs, spacing, trailing commas, quote style
+    try {
+      execFileSync(
+        'npx',
+        ['--no-install', 'prettier', '--write', '--', ...filePaths],
+        {
+          cwd,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+          timeout: 30_000,
+        }
+      );
+      logger.info('prettier --write completed on generated files.');
+    } catch (err) {
+      const prettierOut =
+        err instanceof Error && 'stdout' in err
+          ? String((err as Record<string, unknown>).stdout)
+          : '';
+      const prettierErr =
+        err instanceof Error && 'stderr' in err
+          ? String((err as Record<string, unknown>).stderr)
+          : '';
+      const prettierMsg =
+        (prettierOut + prettierErr).trim() ||
+        (err instanceof Error ? err.message : String(err));
+      logger.warn(`prettier --write failed (non-fatal):\n${prettierMsg}`);
+    }
+
+    // 2. eslint --fix — fixes auto-fixable lint rules
+    try {
+      execFileSync(
+        'npx',
+        ['--no-install', 'eslint', '--fix', '--', ...filePaths],
+        {
+          cwd,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+          timeout: 30_000,
+        }
+      );
+      logger.info('eslint --fix completed on generated files.');
+    } catch (err) {
+      // eslint exits non-zero when unfixable errors remain — that is expected.
+      // Log stdout + stderr so unfixable lint errors are visible in Jenkins logs.
+      const eslintOut =
+        err instanceof Error && 'stdout' in err
+          ? String((err as Record<string, unknown>).stdout)
+          : '';
+      const eslintErr =
+        err instanceof Error && 'stderr' in err
+          ? String((err as Record<string, unknown>).stderr)
+          : '';
+      const eslintMsg =
+        (eslintOut + eslintErr).trim() ||
+        (err instanceof Error ? err.message : String(err));
+      logger.warn(
+        `eslint --fix reported errors (unfixable rules remain):\n${eslintMsg}`
+      );
+    }
   }
 
   /**
