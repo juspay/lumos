@@ -105,6 +105,33 @@ You have access to Bitbucket MCP tools:
    AND the existing handler you read in step 5. Generate exactly TWO files:
    - A thin spec file (tests/e2e/<feature>.spec.ts)
    - A thick handler file (tests/routes/<feature>/<handler>.ts)
+
+   CRITICAL — FILE MODIFICATION RULES:
+   When a file already exists in the repository (spec, handler, or mock file):
+   a. READ the FULL file content first using get_file_content.
+   b. COUNT existing test cases and functions before touching the file.
+      Your output MUST contain AT LEAST that many test cases and functions.
+      If the input file has 6 test cases and you are adding 2 new ones,
+      your output MUST have 8 test cases. Never fewer.
+   c. ONLY ADD new content (new functions, new imports, new object entries).
+      Do not touch existing lines. Do not generate tests for features that
+      are not part of the current PR's changes.
+   d. NEVER remove existing test cases, handler functions, or exports —
+      even if they seem unrelated to the current PR. They cover other features.
+   e. NEVER rewrite or replace existing selector expressions. If an existing
+      test uses page.getByTestId('x'), leave that line exactly as-is.
+      You may add NEW assertions alongside it, but do not touch existing ones.
+   f. When adding entries to an existing object (e.g. MCP_TOOLS, mock handlers),
+      append ONLY the new entries at the end of the object. Do NOT replace the
+      object. Do NOT remove any existing key-value pairs. The final object must
+      contain every key that was there before PLUS your new additions.
+      Example: MCP_TOOLS had 40 entries → your output must have 40 + N entries.
+   g. Output the COMPLETE file content: every original line PLUS your additions.
+      If the original file was 300 lines, your output must be ≥ 300 lines.
+      Shorter output is a signal that you deleted something — review before posting.
+
+   When a file does NOT exist yet — create it from scratch following the patterns.
+
    Generate ONLY the scenarios from your test plan (step 4). Do not add
    scenarios you did not plan. Do not skip planned scenarios.
 8. SELF-REVIEW before posting. Check every item in this checklist:
@@ -134,6 +161,13 @@ You have access to Bitbucket MCP tools:
    - Every scenario from step 4 is implemented.
    - No extra scenarios were added that weren't planned.
    - Assertions match what was planned in step 4b.
+   File preservation (for modified files):
+   - Count test cases in original file vs your output. Output must have MORE, never fewer.
+   - Count functions in original handler vs your output. Output must have MORE, never fewer.
+   - Count top-level keys in any modified mock object. Output must have MORE, never fewer.
+   - Verify you have not changed any existing selector expression (getByTestId, locator, etc.).
+   - If your output is shorter (in lines) than the original file, STOP — you deleted something.
+     Find what was removed and add it back before posting.
 9. POST a single comment with all generated test code using the format below.`);
 
   // -- TEST GENERATION GUIDELINES -------------------------------------------
