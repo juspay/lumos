@@ -1,3 +1,7 @@
+## <small>1.5.3 (2026-05-04)</small>
+
+* fix: lint/format before push + file preservation rules in test gen prompt ([5c03bb2](https://github.com/juspay/lumos/commit/5c03bb2)), closes [#4970](https://github.com/juspay/lumos/issues/4970) [#4971](https://github.com/juspay/lumos/issues/4971)
+
 ## <small>1.5.2 (2026-05-03)</small>
 
 * fix(pr-review): paginate stale cleanup and add advisory verdict semantics ([527d04f](https://github.com/juspay/lumos/commit/527d04f)), closes [hi#volume](https://github.com/hi/issues/volume)
