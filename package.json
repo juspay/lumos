@@ -1,6 +1,6 @@
 {
   "name": "@juspay/lumos",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "type": "module",
   "description": "AI-powered test failure analysis agent -- correlates Playwright failures with PR changes and posts fix suggestions.",
   "main": "dist/index.js",

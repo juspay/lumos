@@ -1,3 +1,7 @@
+## <small>1.5.4 (2026-05-11)</small>
+
+* fix: pass source branch to get_file_content in test gen prompt ([888c0d6](https://github.com/juspay/lumos/commit/888c0d6))
+
 ## <small>1.5.3 (2026-05-04)</small>
 
 * fix: lint/format before push + file preservation rules in test gen prompt ([5c03bb2](https://github.com/juspay/lumos/commit/5c03bb2)), closes [#4970](https://github.com/juspay/lumos/issues/4970) [#4971](https://github.com/juspay/lumos/issues/4971)
