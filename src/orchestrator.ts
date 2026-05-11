@@ -757,7 +757,8 @@ export class LumosOrchestrator {
     // -- Build prompts -------------------------------------------------------
     const testGenSystemPrompt = buildTestGenSystemPrompt(
       this.config,
-      this.projectRoot
+      this.projectRoot,
+      prMetadata.sourceBranch
     );
     const userMessage = buildTestGenUserMessage(
       prMetadata,
@@ -1110,7 +1111,8 @@ export class LumosOrchestrator {
 
     const systemPrompt = buildTestGenSystemPrompt(
       this.config,
-      this.projectRoot
+      this.projectRoot,
+      prMetadata.sourceBranch
     );
 
     // Build a focused fix prompt using the test result comment
