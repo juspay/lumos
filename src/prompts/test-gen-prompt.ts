@@ -10,9 +10,19 @@ import type { ChangedFile, PrMetadata } from '../parsers/types.js';
 
 export function buildTestGenSystemPrompt(
   config: LumosConfig,
-  projectRoot: string
+  projectRoot: string,
+  sourceBranch?: string
 ): string {
   const sections: string[] = [];
+  // Sanitize branch name: strip control characters and quotes to prevent
+  // prompt injection and malformed tool call instructions.
+  // Re-check after sanitization: if stripping leaves an empty string, treat
+  // as undefined so the prompt falls back to the '<source-branch>' placeholder
+  // instead of emitting branch="" (which would trigger default-branch reads).
+  const sanitized = sourceBranch
+    ? sourceBranch.replace(/[\r\n\t"'`\\]/g, '').trim()
+    : '';
+  const safeBranch = sanitized.length > 0 ? sanitized : undefined;
 
   // -- ROLE ------------------------------------------------------------------
   sections.push(`[ROLE]
@@ -31,7 +41,10 @@ You have access to Bitbucket MCP tools:
 - get_pull_request: Fetch PR details including the full diff
 - get_pull_request_diff: Get the diff, optionally filtered to a specific file
 - list_pull_requests: List pull requests for a repository
-- get_file_content: Read source files from the repository
+- get_file_content: Read source files from the repository.
+  IMPORTANT: Always pass branch="${safeBranch ?? '<source-branch>'}" in every get_file_content call.
+  Without the branch parameter, Bitbucket reads from the default branch and will return "Not found"
+  for any file that was added or modified in this PR.
 - search_code: Search for patterns in the codebase
 - add_comment: Post a comment on the PR`);
 
@@ -55,6 +68,13 @@ You have access to Bitbucket MCP tools:
    - Pure refactor (same behavior, different code) -> explain why tests
      are not needed and skip generation
    - Style / config change -> skip, explain why
+   NEVER use the PR description's test result claims (e.g. "37/37 passing",
+   "tests already exist") as a reason to skip generation. Only skip if you
+   successfully read the actual test files via get_file_content and confirmed
+   the coverage yourself. If file reads fail, proceed with generation but
+   explicitly state in your test plan which files you could not read, note
+   that selectors are unverified, and flag the generated tests as requiring
+   manual verification before merge.
 4. PLAN the test scenarios BEFORE writing any code.
    You MUST output a structured test plan. Do NOT skip this step.
    For each testable change, write:
@@ -79,12 +99,14 @@ You have access to Bitbucket MCP tools:
    a. Use search_code to find a handler in tests/routes/ that covers a
       feature similar to the one being changed.
    b. Use get_file_content to read that handler file IN FULL.
+      Pass branch="${safeBranch ?? '<source-branch>'}" in the call.
    c. This is your structural reference. Match its import style, selector
       patterns, helper function patterns, and error handling approach.
    DO NOT SKIP THIS STEP. You cannot generate accurate tests without seeing
    how existing tests in this project are written.
 6. For each testable change:
    a. READ the component source using get_file_content.
+      Pass branch="${safeBranch ?? '<source-branch>'}" in the call.
       Extract ALL selector attributes. Search for:
       - use:testAttributes={'selector-name'} (Svelte action, most common)
       - data-pw="selector-name" (direct HTML attribute)
@@ -109,6 +131,8 @@ You have access to Bitbucket MCP tools:
    CRITICAL — FILE MODIFICATION RULES:
    When a file already exists in the repository (spec, handler, or mock file):
    a. READ the FULL file content first using get_file_content.
+      Pass branch="${safeBranch ?? '<source-branch>'}" in the call.
+      If the file is not found on the branch, treat it as a new file and create it from scratch.
    b. COUNT existing test cases and functions before touching the file.
       Your output MUST contain AT LEAST that many test cases and functions.
       If the input file has 6 test cases and you are adding 2 new ones,

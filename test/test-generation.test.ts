@@ -181,6 +181,41 @@ describe('buildTestGenSystemPrompt', () => {
     expect(prompt).not.toContain('SAFE TO MERGE');
     expect(prompt).not.toContain('NEEDS FIXES');
   });
+
+  it('injects sourceBranch into get_file_content instructions', () => {
+    const prompt = buildTestGenSystemPrompt(
+      makeConfig(),
+      tmpDir,
+      'feat/BZ-1234-my-feature'
+    );
+    expect(prompt).toContain('branch="feat/BZ-1234-my-feature"');
+  });
+
+  it('falls back to placeholder when sourceBranch is not provided', () => {
+    const prompt = buildTestGenSystemPrompt(makeConfig(), tmpDir);
+    expect(prompt).toContain('branch="<source-branch>"');
+    expect(prompt).not.toContain('branch="undefined"');
+  });
+
+  it('sanitizes sourceBranch to prevent prompt injection', () => {
+    const prompt = buildTestGenSystemPrompt(
+      makeConfig(),
+      tmpDir,
+      'feat/bad\nbranch"name'
+    );
+    // The sanitized branch value injected into the prompt should not contain
+    // the injected newline or quote from the branch name.
+    expect(prompt).toContain('branch="feat/badbranch');
+    expect(prompt).not.toContain('branch="feat/bad\n');
+  });
+
+  it('falls back to placeholder when sanitization produces an empty string', () => {
+    // A branch name composed entirely of stripped characters becomes empty
+    // after sanitization — must not emit branch="" which triggers default-branch reads.
+    const prompt = buildTestGenSystemPrompt(makeConfig(), tmpDir, '"\'\n\t\\');
+    expect(prompt).toContain('branch="<source-branch>"');
+    expect(prompt).not.toContain('branch=""');
+  });
 });
 
 describe('buildTestGenUserMessage', () => {
